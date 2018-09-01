@@ -30,6 +30,11 @@ enum CompressionType {
 
 // Options to control the behavior of a database (passed to DB::Open)
 struct LEVELDB_EXPORT Options {
+    struct ExpOps {
+        bool seekCompaction;
+
+        ExpOps():seekCompaction(true){}
+    };
   // -------------------
   // Parameters that affect behavior
 
@@ -153,6 +158,9 @@ struct LEVELDB_EXPORT Options {
   //
   // Default: nullptr
   const FilterPolicy* filter_policy;
+
+  //experiment options
+  ExpOps exp_ops;
 
   // Create an Options object with default values for all fields.
   Options();

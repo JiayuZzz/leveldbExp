@@ -17,6 +17,7 @@
 #include "table/two_level_iterator.h"
 #include "util/coding.h"
 #include "util/logging.h"
+#include "leveldb/options.h"
 
 namespace leveldb {
 
@@ -1300,7 +1301,7 @@ Compaction* VersionSet::PickCompaction() {
   // We prefer compactions triggered by too much data in a level over
   // the compactions triggered by seeks.
   const bool size_compaction = (current_->compaction_score_ >= 1);
-  const bool seek_compaction = (current_->file_to_compact_ != nullptr);
+  const bool seek_compaction = (options_->exp_ops.seekCompaction)&&(current_->file_to_compact_ != nullptr);
   if (size_compaction) {
     level = current_->compaction_level_;
     assert(level >= 0);
