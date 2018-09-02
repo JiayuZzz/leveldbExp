@@ -34,6 +34,7 @@
 #include "util/coding.h"
 #include "util/logging.h"
 #include "util/mutexlock.h"
+#include "leveldb/statistics.h"
 
 namespace leveldb {
 
@@ -1117,6 +1118,7 @@ int64_t DBImpl::TEST_MaxNextLevelOverlappingBytes() {
 Status DBImpl::Get(const ReadOptions& options,
                    const Slice& key,
                    std::string* value) {
+  uint64_t startMicros = Env::Default()->NowMicros();
   Status s;
   MutexLock l(&mutex_);
   SequenceNumber snapshot;
@@ -1159,6 +1161,7 @@ Status DBImpl::Get(const ReadOptions& options,
   mem->Unref();
   if (imm != nullptr) imm->Unref();
   current->Unref();
+  STATS::timeAndCount(STATS::getInstance()->readStat,startMicros,Env::Default()->NowMicros());
   return s;
 }
 
@@ -1193,11 +1196,16 @@ void DBImpl::ReleaseSnapshot(const Snapshot* snapshot) {
 
 // Convenience methods
 Status DBImpl::Put(const WriteOptions& o, const Slice& key, const Slice& val) {
-  return DB::Put(o, key, val);
+  uint64_t startMicros = NowMiros();
+  Status s = DB::Put(o, key, val);
+  STATS::timeAndCount(STATS::getInstance()->writeStat, startMicros, NowMiros());
+  return s;
 }
 
 Status DBImpl::Delete(const WriteOptions& options, const Slice& key) {
+  uint64_t startMicros = NowMiros();
   return DB::Delete(options, key);
+  STATS::timeAndCount(STATS::getInstance()->writeStat,startMicros,NowMiros());
 }
 
 Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
@@ -1411,6 +1419,8 @@ bool DBImpl::GetProperty(const Slice& property, std::string* value) {
       return true;
     }
   } else if (in == "stats") {
+    printf(" ----------------- experiment stats ----------------\n");
+    STATS::getInstance()-> printAll();
     char buf[200];
     snprintf(buf, sizeof(buf),
              "                               Compactions\n"
