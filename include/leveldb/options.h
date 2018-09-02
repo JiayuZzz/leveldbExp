@@ -32,6 +32,7 @@ enum CompressionType {
 struct LEVELDB_EXPORT Options {
     struct ExpOps {
         bool seekCompaction;
+        bool directIO;
 
         ExpOps():seekCompaction(true){}
     };
