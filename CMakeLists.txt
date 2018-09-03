@@ -171,6 +171,7 @@ target_sources(leveldb
     "${LEVELDB_PUBLIC_INCLUDE_DIR}/table.h"
     "${LEVELDB_PUBLIC_INCLUDE_DIR}/write_batch.h"
     "${LEVELDB_PUBLIC_INCLUDE_DIR}/statistics.h"
+    "${LEVELDB_PUBLIC_INCLUDE_DIR}/vlog.h"
 )
 
 # POSIX code is specified separately so we can leave it out in the future.
@@ -399,6 +400,7 @@ if(LEVELDB_INSTALL)
       "${PROJECT_SOURCE_DIR}/${LEVELDB_PUBLIC_INCLUDE_DIR}/table.h"
       "${PROJECT_SOURCE_DIR}/${LEVELDB_PUBLIC_INCLUDE_DIR}/write_batch.h"
       "${PROJECT_SOURCE_DIR}/${LEVELDB_PUBLIC_INCLUDE_DIR}/statistics.h"
+      "${PROJECT_SOURCE_DIR}/${LEVELDB_PUBLIC_INCLUDE_DIR}/vlog.h"
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/leveldb
   )
 

@@ -26,26 +26,25 @@ namespace leveldb{
         statType writeStat;
         statType readStat;
         statType writeLogStat;
+        statType readVlogStat;
+        statType writeVlogStat;
 
-        static void TimeAndCount(statType &stat, uint64_t start, uint64_t end) {
+        static void timeAndCount(statType &stat, uint64_t start, uint64_t end) {
             stat.first++;
             stat.second += (end - start);
         }
 
-        static void Time(uint64_t &stat, uint64_t start, uint64_t end) {
+        static void time(uint64_t &stat, uint64_t start, uint64_t end) {
             stat+=(end-start);
         }
 
-        void Print(){
+        void printAll(){
             printf("\n");
+            printVlogRW();
             printRW();
             printWriteLog();
             printf("\n");
         }
-
-    private:
-
-        Stats(){}
 
         void printWriteLog(){
             double time = writeLogStat.second;
@@ -58,9 +57,25 @@ namespace leveldb{
             double writeTime = writeStat.second;
             uint32_t readCnt = readStat.first;
             double readTime = readStat.second;
-            printf("total write time: %.2f s, count: %u, write latency: %.2f us\n",writeTime/1000000,writeCnt,writeTime/writeCnt);
-            printf("total read time: %.2f s, count: %u, read latency: %.2f us\n",readTime/1000000,readCnt,readTime/readCnt);
+            printf("LSM-Tree write time: %.2f s, count: %u, write latency: %.2f us\n",writeTime/1000000,writeCnt,writeTime/writeCnt);
+            printf("LSM-Tree read time: %.2f s, count: %u, read latency: %.2f us\n",readTime/1000000,readCnt,readTime/readCnt);
         }
+
+        void printVlogRW(){
+            uint32_t writeCnt = writeVlogStat.first;
+            double writeTime = writeVlogStat.second;
+            uint32_t readCnt = readVlogStat.first;
+            double readTime = readVlogStat.second;
+            printf("Total write time: %.2f s, count: %u, write latency: %.2f us\n",writeTime/1000000,writeCnt,writeTime/writeCnt);
+            printf("Total read time: %.2f s, count: %u, read latency: %.2f us\n",readTime/1000000,readCnt,readTime/readCnt);
+        }
+
+
+
+    private:
+
+        Stats(){}
+
     };
 }
 

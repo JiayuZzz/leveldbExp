@@ -1161,7 +1161,7 @@ Status DBImpl::Get(const ReadOptions& options,
   mem->Unref();
   if (imm != nullptr) imm->Unref();
   current->Unref();
-  STATS::TimeAndCount(STATS::getInstance()->readStat,startMicros,Env::Default()->NowMicros());
+  STATS::timeAndCount(STATS::getInstance()->readStat,startMicros,Env::Default()->NowMicros());
   return s;
 }
 
@@ -1198,14 +1198,14 @@ void DBImpl::ReleaseSnapshot(const Snapshot* snapshot) {
 Status DBImpl::Put(const WriteOptions& o, const Slice& key, const Slice& val) {
   uint64_t startMicros = NowMiros();
   Status s = DB::Put(o, key, val);
-  STATS::TimeAndCount(STATS::getInstance()->writeStat, startMicros, NowMiros());
+  STATS::timeAndCount(STATS::getInstance()->writeStat, startMicros, NowMiros());
   return s;
 }
 
 Status DBImpl::Delete(const WriteOptions& options, const Slice& key) {
   uint64_t startMicros = NowMiros();
   return DB::Delete(options, key);
-  STATS::TimeAndCount(STATS::getInstance()->writeStat,startMicros,NowMiros());
+  STATS::timeAndCount(STATS::getInstance()->writeStat,startMicros,NowMiros());
 }
 
 Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
@@ -1419,7 +1419,8 @@ bool DBImpl::GetProperty(const Slice& property, std::string* value) {
       return true;
     }
   } else if (in == "stats") {
-    STATS::getInstance()-> Print();
+    printf("------------ experiment stats -----------------\n");
+    STATS::getInstance()-> printAll();
     char buf[200];
     snprintf(buf, sizeof(buf),
              "                               Compactions\n"
