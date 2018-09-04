@@ -27,6 +27,7 @@ namespace leveldb{
         statType readStat;
         statType writeLogStat;
         statType readVlogStat;
+        statType scanVlogStat;
         statType writeVlogStat;
 
         static void timeAndCount(statType &stat, uint64_t start, uint64_t end) {
@@ -66,8 +67,11 @@ namespace leveldb{
             double writeTime = writeVlogStat.second;
             uint32_t readCnt = readVlogStat.first;
             double readTime = readVlogStat.second;
+            uint32_t scanCnt = scanVlogStat.first;
+            double scanTime = scanVlogStat.second;
             printf("Total write time: %.2f s, count: %u, write latency: %.2f us\n",writeTime/1000000,writeCnt,writeTime/writeCnt);
             printf("Total read time: %.2f s, count: %u, read latency: %.2f us\n",readTime/1000000,readCnt,readTime/readCnt);
+            printf("Total vlog scan time:%.2f s, count: %u, scan latency: %.2f us\n",scanTime/1000000,scanCnt,scanTime/scanCnt);
         }
 
 

@@ -11,6 +11,7 @@
 #include "unistd.h"
 #include "statistics.h"
 #include "env.h"
+#include <vector>
 
 using std::string;
 
@@ -70,14 +71,7 @@ namespace leveldb {
             string valueInfo;
             Status s = indexDB->Get(readOptions,key,&valueInfo);
             if(!s.ok()) return s;
-            size_t sepPos = valueInfo.find('$');
-            string offsetStr = valueInfo.substr(0,sepPos);
-            string valueSizeStr = valueInfo.substr(sepPos+1,valueInfo.size()-sepPos+1);
-            long offset = std::stol(offsetStr);
-            long valueSize = std::stol(valueSizeStr);
-            char value[valueSize];
-            pread(fileno(vlog),value,valueSize,offset);
-            val->assign(value,valueSize);
+            readValue(valueInfo,val);
             STATS::timeAndCount(STATS::getInstance()->readVlogStat,startMicro,NowMiros());
             return s;
         }
@@ -89,6 +83,28 @@ namespace leveldb {
             return s;
         }
 
+        // single thread scan
+        size_t Scan(const ReadOptions readOptions,const string& start, size_t num,std::vector<string>& keys,std::vector<string>&values){
+            uint64_t startMicro = NowMiros();
+            size_t i;
+            if(keys.size()<num)
+                keys.resize(num);
+            if(values.size()<num)
+                values.resize(num);
+
+            // use index tree iter to get value info
+            auto iter = indexDB->NewIterator(readOptions);
+            iter->Seek(start);
+            for(i=0;i<num&&iter->Valid();i++){
+                keys[i] = iter->key().ToString();
+                string valueInfo = iter->value().ToString();
+                readValue(valueInfo,&values[i]);
+                iter->Next();
+            }
+            STATS::timeAndCount(STATS::getInstance()->scanVlogStat,startMicro,NowMiros());
+            return i;
+        }
+
         bool GetProperty(const string& property, std::string* value) {
             return indexDB->GetProperty(property,value);
         }
@@ -97,7 +113,18 @@ namespace leveldb {
     private:
         DB *indexDB;
         FILE *vlog;
-        size_t tail;
+
+        // read value from vlog according to valueInfo read from index tree
+        void readValue(string& valueInfo, string* val){
+            size_t sepPos = valueInfo.find('$');
+            string offsetStr = valueInfo.substr(0,sepPos);
+            string valueSizeStr = valueInfo.substr(sepPos+1,valueInfo.size()-sepPos+1);
+            long offset = std::stol(offsetStr);
+            long valueSize = std::stol(valueSizeStr);
+            char value[valueSize];
+            pread(fileno(vlog),value,valueSize,offset);
+            val->assign(value,valueSize);
+        }
     };
 }
 
