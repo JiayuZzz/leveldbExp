@@ -79,7 +79,7 @@ if(BUILD_SHARED_LIBS)
   add_compile_options(-fvisibility=hidden)
 endif(BUILD_SHARED_LIBS)
 
-add_library(leveldb "" include/leveldb/statistics.h)
+add_library(leveldb "" include/leveldb/statistics.h include/leveldb/threadpool.h)
 target_sources(leveldb
   PRIVATE
     "${PROJECT_BINARY_DIR}/${LEVELDB_PORT_CONFIG_DIR}/port_config.h"
@@ -172,6 +172,7 @@ target_sources(leveldb
     "${LEVELDB_PUBLIC_INCLUDE_DIR}/write_batch.h"
     "${LEVELDB_PUBLIC_INCLUDE_DIR}/statistics.h"
     "${LEVELDB_PUBLIC_INCLUDE_DIR}/vlog.h"
+    "${LEVELDB_PUBLIC_INCLUDE_DIR}/threadpool.h"
 )
 
 # POSIX code is specified separately so we can leave it out in the future.
@@ -401,6 +402,7 @@ if(LEVELDB_INSTALL)
       "${PROJECT_SOURCE_DIR}/${LEVELDB_PUBLIC_INCLUDE_DIR}/write_batch.h"
       "${PROJECT_SOURCE_DIR}/${LEVELDB_PUBLIC_INCLUDE_DIR}/statistics.h"
       "${PROJECT_SOURCE_DIR}/${LEVELDB_PUBLIC_INCLUDE_DIR}/vlog.h"
+      "${PROJECT_SOURCE_DIR}/${LEVELDB_PUBLIC_INCLUDE_DIR}/threadpool.h"
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/leveldb
   )
 
