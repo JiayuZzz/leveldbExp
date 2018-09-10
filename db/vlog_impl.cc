@@ -22,7 +22,7 @@ namespace leveldb {
         threadPool_ = new ThreadPool(options_.numThreads);
         s = DB::Open(options, dbname, &indexDB_);
         if (!s.ok()) {
-            std::cout << s.ToString() << std::endl;
+            std::cerr << s.ToString() << std::endl;
             return;
         }
         vlog_ = fopen(vlogname.c_str(), "a+");
@@ -40,8 +40,7 @@ namespace leveldb {
         string keySizeStr = std::to_string(keySize);
         string valueSizeStr = std::to_string(valueSize);
 
-        string vlogStr =
-                keySizeStr + "$" + valueSizeStr + "$" + key + val; // | key size | value size | key | value |
+        string vlogStr = keySizeStr + "$" + valueSizeStr + "$" + key + val; // | key size | value size | key | value |
         fwrite(vlogStr.c_str(), vlogStr.size(), 1, vlog_);
 
         long vlogOffset = ftell(vlog_) - val.size();
