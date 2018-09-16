@@ -53,9 +53,11 @@ namespace leveldb {
         std::deque<Writer*> writers_ GUARDED_BY(mutex_);
         WriteBatch* tmp_batch_ GUARDED_BY(mutex_);
         port::CondVar background_work_finished_signal_ GUARDED_BY(mutex_);
-        uint64_t next_vlog_num_;
+        std::atomic<int> next_vlog_num_;
         bool background_compaction_scheduled_;
+        std::vector<FILE*> openedVlog;
 
+        FILE* OpenVlog(int vlogNum);  // open a vlog file
         WriteBatch* BuildBatchGroup(Writer** last_writer)
         EXCLUSIVE_LOCKS_REQUIRED(mutex_);
         Status MakeRoomForWrite(bool force /* compact even if there is room? */)
@@ -63,6 +65,7 @@ namespace leveldb {
         void MaybeScheduleCompaction();
         Status CompactMemtable();
         Status WriteVlog(MemTable* mem);
+        Status readValue(string &valueInfo, string *val);
     };
 }
 

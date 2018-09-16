@@ -111,7 +111,7 @@ namespace leveldb {
         //get value offset and value size
         size_t sepPos = valueInfo.find('$');
         string offsetStr = valueInfo.substr(0, sepPos);
-        string valueSizeStr = valueInfo.substr(sepPos + 1, valueInfo.size() - sepPos + 1);
+        string valueSizeStr = valueInfo.substr(sepPos + 1, valueInfo.size() - sepPos - 1);
         long offset = std::stol(offsetStr);
         long valueSize = std::stol(valueSizeStr);
         char value[valueSize];

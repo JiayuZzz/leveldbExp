@@ -33,6 +33,8 @@ namespace leveldb {
             : options_(raw_options), vlogDir_(vlogdir), env_(raw_options.env),
               internal_comparator_(raw_options.comparator),
               background_work_finished_signal_(&mutex_) {
+        next_vlog_num_=0;
+        openedVlog = std::vector<FILE*>(options_.numOpenfile);
         mem_ = new MemTable(internal_comparator_);
         has_imm_.Release_Store(nullptr);
         threadPool_ = new ThreadPool(options_.numThreads);
@@ -50,6 +52,11 @@ namespace leveldb {
             background_work_finished_signal_.Wait();
         }
         mutex_.Unlock();
+        if (mem_ != nullptr) mem_->Unref();
+        if (imm_ != nullptr) imm_->Unref();
+        for(FILE* f:openedVlog){
+            if(f) fclose(f);
+        }
         delete indexDB_;
         delete threadPool_;
     }
@@ -59,22 +66,29 @@ namespace leveldb {
         w.batch = my_batch;
         w.sync = options.sync;
         w.done = false;
+//        std::cerr<<"writer lock\n";
         MutexLock l(&mutex_);
+//        std::cerr<<"done lock\n";
         writers_.push_back(&w);
         while (!w.done && &w != writers_.front()) {
+//            std::cerr<<"writer wait\n";
             w.cv.Wait();
+//            std::cerr<<"wait done\n";
         }
         if (w.done) {
             return w.status;
         }
         Status status = MakeRoomForWrite(my_batch == nullptr);//make room for writes here
+//        std::cerr<<"done make room\n";
         Writer *last_writer = &w;
         if (status.ok() && my_batch != nullptr) {
             WriteBatch *updates = BuildBatchGroup(&last_writer);
             {
                 mutex_.Unlock();
                 status = WriteBatchInternal::InsertInto(updates, mem_);
+//                std::cerr<<"memlock\n";
                 mutex_.Lock();
+//                std::cerr<<"mem done lock\n";
             }
             if (updates == tmp_batch_) tmp_batch_->Clear();
         }
@@ -103,7 +117,17 @@ namespace leveldb {
         return Write(writeOptions, &batch);
     }
 
-    Status ExpDBImpl::Get(const leveldb::ReadOptions readOptions, const string &key, string *val) {return Status();}
+    Status ExpDBImpl::Get(const leveldb::ReadOptions readOptions, const string &key, string *val) {
+        // TODO: search memtable
+        std::string valueInfo;
+        // get value metadata from index db
+        Status s = indexDB_->Get(readOptions, key, &valueInfo);
+        if(s.ok()) {
+            s = readValue(valueInfo, val);
+        }
+        return s;
+    }
+
     size_t ExpDBImpl::Scan(const leveldb::ReadOptions readOptions, const string &start, size_t num,
                            std::vector<string> &keys, std::vector<string> &values) {return 0;}
     bool ExpDBImpl::GetProperty(const leveldb::Slice &property, std::string *value) {return true;}
@@ -214,11 +238,10 @@ namespace leveldb {
         Iterator *iter = mem->NewIterator();
         mutex_.Unlock();
         iter->SeekToFirst();
-        uint64_t vlogNum = next_vlog_num_;
-        std::string vlogNmae = vlogDir_ +"/"+ std::to_string(vlogNum);
+        int vlogNum = next_vlog_num_;
         FILE *f;
         if (iter->Valid()) {
-            f = fopen(vlogNmae.c_str(), "a+");
+            f = OpenVlog(vlogNum);
             next_vlog_num_++;
         } else {
             return s.NotFound("Invalid Mem Iterator");
@@ -242,11 +265,51 @@ namespace leveldb {
             fwrite(vlogStr.c_str(), vlogStr.size(), 1, f);
             size_t vlogOffset = ftell(f) - val.size();
             std::string vlogOffsetStr = std::to_string(vlogOffset);
-            std::string indexStr = vlogNum + "$" + vlogOffsetStr + "$" + valueSizeStr; // |vlog file number|offset|size|
+            std::string indexStr = std::to_string(vlogNum) + "$" + vlogOffsetStr + "$" + valueSizeStr; // |vlog file number|offset|size|
             s = indexDB_->Put(WriteOptions(),key,indexStr);
             if(!s.ok()) return s;
         }
-        fclose(f);
+        return s;
+    }
+
+    FILE* ExpDBImpl::OpenVlog(int vlogNum) {
+        std::string filename = vlogDir_+"/"+std::to_string(vlogNum);
+        assert(vlogNum<=options_.numOpenfile);
+        if(openedVlog[vlogNum]==nullptr){
+            openedVlog[vlogNum] = fopen(filename.c_str(),"a+");
+        }
+        return openedVlog[vlogNum];
+
+    }
+
+    Status ExpDBImpl::readValue(string &valueInfo, string *val) {
+        // get file number, offset and value size
+        Status s;
+//        std::cerr<<valueInfo<<std::endl;
+        size_t offsetSep = valueInfo.find('$');
+//        std::cerr<<"offsetsep:"<<offsetSep<<std::endl;
+        size_t sizeSep = valueInfo.rfind('$');
+//        std::cerr<<"sizeSep:"<<sizeSep<<std::endl;
+        string vlogNumStr = valueInfo.substr(0,offsetSep);
+//        std::cerr<<vlogNumStr<<std::endl;
+        string offsetStr = valueInfo.substr(offsetSep+1,sizeSep-offsetSep-1);
+        string valueSizeStr = valueInfo.substr(sizeSep+1,valueInfo.size()-sizeSep-1);
+//        std::cerr<<valueSizeStr<<std::endl;
+        int vlogNum = std::stoi(vlogNumStr);
+//        std::cerr<<vlogNum<<std::endl;
+        size_t offset = std::stoul(offsetStr);
+//        std::cerr<<"offset:"<<offset<<std::endl;
+        size_t valueSize = std::stoul(valueSizeStr);
+//        std::cerr<<"valueSize:"<<valueSize<<std::endl;
+        char value[valueSize];
+        // read value from vlog file
+        FILE* f = OpenVlog(vlogNum);
+        size_t got = pread(fileno(f),value,valueSize,offset);
+        if(got!=valueSize){
+            s.IOError("get value error\n");
+            std::cerr<<"get value error"<<std::endl;
+        }
+        val->assign(value,valueSize);
         return s;
     }
 }
