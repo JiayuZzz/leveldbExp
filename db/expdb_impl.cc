@@ -229,17 +229,18 @@ namespace leveldb {
         * use '$' to seperate offset and value size, key size and value size, value size and key
         */
         for (; iter->Valid(); iter->Next()) {
+            // TODO: debug key sequence number
             std::string key = iter->key().ToString();
+            key = key.substr(0,key.size()-8);
             std::string val = iter->value().ToString();
-            long keySize = key.size();
-            long valueSize = val.size();
+            size_t keySize = key.size();
+            size_t valueSize = val.size();
             std::string keySizeStr = std::to_string(keySize);
             std::string valueSizeStr = std::to_string(valueSize);
 
-            std::string vlogStr =
-                    keySizeStr + "$" + valueSizeStr + "$" + key + val; // | key size | value size | key | value |
+            std::string vlogStr = keySizeStr + "$" + valueSizeStr + "$" + key + val; // | key size | value size | key | value |
             fwrite(vlogStr.c_str(), vlogStr.size(), 1, f);
-            long vlogOffset = ftell(f) - val.size();
+            size_t vlogOffset = ftell(f) - val.size();
             std::string vlogOffsetStr = std::to_string(vlogOffset);
             std::string indexStr = vlogNum + "$" + vlogOffsetStr + "$" + valueSizeStr; // |vlog file number|offset|size|
             s = indexDB_->Put(WriteOptions(),key,indexStr);
