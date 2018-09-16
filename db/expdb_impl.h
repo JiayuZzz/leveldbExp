@@ -39,6 +39,7 @@ namespace leveldb {
         virtual bool GetProperty(const Slice &property, std::string *value);
 
     private:
+        struct ScanMeta;
         struct Writer;
         DB *indexDB_;
         ExpOptions options_;

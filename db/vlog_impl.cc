@@ -18,7 +18,7 @@ namespace leveldb {
     VlogDB::~VlogDB() {}
 
     VlogDBImpl::VlogDBImpl(leveldb::VlogOptions &options, const std::string &dbname, const std::string &vlogname,
-                           leveldb::Status &s) :options_(options) {
+                           leveldb::Status &s) : options_(options) {
         threadPool_ = new ThreadPool(options_.numThreads);
         s = DB::Open(options, dbname, &indexDB_);
         if (!s.ok()) {
@@ -88,20 +88,27 @@ namespace leveldb {
         iter->Seek(start);
 
         //for main thread waiting
-        std::future<Status> s;
+        std::future<Status> s[num];
         for (i = 0; i < num && iter->Valid(); i++) {
             keys[i] = iter->key().ToString();
             valueInfos[i] = iter->value().ToString();
-            s = threadPool_->addTask(&VlogDBImpl::readValue,
-                                    this,
-                                    std::ref(valueInfos[i]),
-                                    &values[i]);
+            s[i] = threadPool_->addTask(&VlogDBImpl::readValue,
+                                        this,
+                                        std::ref(valueInfos[i]),
+                                        &values[i]);
             iter->Next();
             if (!iter->Valid()) std::cerr << "not valid\n";
         }
         // wait for all threads to complete
         uint64_t wait = NowMiros();
-        s.wait();
+        for (auto &fs:s) {
+            try {
+                fs.wait();
+            // if no that many keys
+            } catch (const std::future_error &e){
+                break;
+            }
+        }
         STATS::time(STATS::getInstance()->waitScanThreadsFinish, wait, NowMiros());
         STATS::timeAndCount(STATS::getInstance()->scanVlogStat, startMicro, NowMiros());
         return i;
@@ -121,8 +128,8 @@ namespace leveldb {
         return Status();
     }
 
-    bool VlogDBImpl::GetProperty(const Slice& property, std::string* value){
-        return indexDB_->GetProperty(property,value);
+    bool VlogDBImpl::GetProperty(const Slice &property, std::string *value) {
+        return indexDB_->GetProperty(property, value);
     };
 
     VlogDBImpl::~VlogDBImpl() {
