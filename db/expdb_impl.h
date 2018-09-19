@@ -13,6 +13,7 @@
 #include <string>
 #include <port/port.h>
 #include "db/dbformat.h"
+#include <map>
 
 
 namespace leveldb {
@@ -67,6 +68,9 @@ namespace leveldb {
         Status CompactMemtable();
         Status WriteVlog(MemTable* mem);
         Status readValue(string &valueInfo, string *val);
+        Status readValues(int vlogNum,const std::vector<ScanMeta>& metas,
+                          std::vector<std::string> &values);
+        void parseValueInfo(string &valueInfo, int& vlogNum, size_t& offset, size_t& valueSize);
     };
 }
 
