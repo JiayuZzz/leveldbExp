@@ -99,6 +99,8 @@ target_sources(leveldb
     "${PROJECT_SOURCE_DIR}/db/dumpfile.cc"
     "${PROJECT_SOURCE_DIR}/db/filename.cc"
     "${PROJECT_SOURCE_DIR}/db/filename.h"
+    "${PROJECT_SOURCE_DIR}/db/funcs.h"
+    "${PROJECT_SOURCE_DIR}/db/funcs.cc"
     "${PROJECT_SOURCE_DIR}/db/log_format.h"
     "${PROJECT_SOURCE_DIR}/db/log_reader.cc"
     "${PROJECT_SOURCE_DIR}/db/log_reader.h"

@@ -16,7 +16,7 @@ namespace leveldb {
     struct LEVELDB_EXPORT ExpOptions : Options {
         int numThreads = 32;
         int numOpenfile = 50000;
-        size_t vlogMemSize = 4<<24;
+        size_t vlogMemSize = 4<<26;
     };
 
     class ExpDB {

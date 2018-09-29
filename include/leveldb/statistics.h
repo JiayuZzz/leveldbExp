@@ -29,6 +29,7 @@ namespace leveldb{
         statType readVlogStat;
         statType scanVlogStat;
         statType writeVlogStat;
+        uint64_t writeMemtable;
         uint64_t waitScanThreadsFinish;
 
         static void timeAndCount(statType &stat, uint64_t start, uint64_t end) {
@@ -59,8 +60,10 @@ namespace leveldb{
             double writeTime = writeStat.second;
             uint32_t readCnt = readStat.first;
             double readTime = readStat.second;
+            double memTime = writeMemtable;
             printf("LSM-Tree write time: %.2f s, count: %u, write latency: %.2f us\n",writeTime/1000000,writeCnt,writeTime/writeCnt);
             printf("LSM-Tree read time: %.2f s, count: %u, read latency: %.2f us\n",readTime/1000000,readCnt,readTime/readCnt);
+            printf("LSM-Tree write memtable time: %.2f s\n",memTime/1000000);
         }
 
         void printVlogRW(){
@@ -70,10 +73,10 @@ namespace leveldb{
             double readTime = readVlogStat.second;
             uint32_t scanCnt = scanVlogStat.first;
             double scanTime = scanVlogStat.second;
-            printf("Total write time: %.2f s, count: %u, write latency: %.2f us\n",writeTime/1000000,writeCnt,writeTime/writeCnt);
-            printf("Total read time: %.2f s, count: %u, read latency: %.2f us\n",readTime/1000000,readCnt,readTime/readCnt);
-            printf("Total vlog scan time:%.2f s, count: %u, scan latency: %.2f us\n",scanTime/1000000,scanCnt,scanTime/scanCnt);
-            printf("Wait scan threads finish time: %.2f s\n",(double)waitScanThreadsFinish/1000000);
+            printf("Total vlogdb write time: %.2f s, count: %u, write latency: %.2f us\n",writeTime/1000000,writeCnt,writeTime/writeCnt);
+            printf("Total vlogdb read time: %.2f s, count: %u, read latency: %.2f us\n",readTime/1000000,readCnt,readTime/readCnt);
+            printf("Total vlogdb scan time:%.2f s, count: %u, scan latency: %.2f us\n",scanTime/1000000,scanCnt,scanTime/scanCnt);
+            printf("Wait vlog scan threads finish time: %.2f s\n",(double)waitScanThreadsFinish/1000000);
         }
 
 

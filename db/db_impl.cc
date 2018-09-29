@@ -1246,9 +1246,11 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
           sync_error = true;
         }
       }
+      uint64_t startMem = NowMiros();
       if (status.ok()) {
         status = WriteBatchInternal::InsertInto(updates, mem_);
       }
+      STATS::time(STATS::getInstance()->writeMemtable,startMem,NowMiros());
       mutex_.Lock();
       if (sync_error) {
         // The state of the log file is indeterminate: the log record we

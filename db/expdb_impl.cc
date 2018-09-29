@@ -7,7 +7,8 @@
 #include "expdb_impl.h"
 #include "write_batch_internal.h"
 #include "db/memtable.h"
-#include "vlog_impl.h"
+#include "funcs.h"
+#include <fcntl.h>
 
 namespace leveldb {
     struct ExpDBImpl::Writer {
@@ -76,29 +77,29 @@ namespace leveldb {
         w.batch = my_batch;
         w.sync = options.sync;
         w.done = false;
-        std::cerr << "writer lock\n";
+//        std::cerr << "writer lock\n";
         MutexLock l(&mutex_);
-        std::cerr << "done lock\n";
+//        std::cerr << "done lock\n";
         writers_.push_back(&w);
         while (!w.done && &w != writers_.front()) {
-            std::cerr << "writer wait\n";
+//            std::cerr << "writer wait\n";
             w.cv.Wait();
-            std::cerr << "wait done\n";
+//            std::cerr << "wait done\n";
         }
         if (w.done) {
             return w.status;
         }
         Status status = MakeRoomForWrite(my_batch == nullptr);//make room for writes here
-        std::cerr << "done make room\n";
+//        std::cerr << "done make room\n";
         Writer *last_writer = &w;
         if (status.ok() && my_batch != nullptr) {
             WriteBatch *updates = BuildBatchGroup(&last_writer);
             {
                 mutex_.Unlock();
                 status = WriteBatchInternal::InsertInto(updates, mem_);
-                std::cerr << "memlock\n";
+//                std::cerr << "memlock\n";
                 mutex_.Lock();
-                std::cerr << "mem done lock\n";
+//                std::cerr << "mem done lock\n";
             }
             if (updates == tmp_batch_) tmp_batch_->Clear();
         }
@@ -138,6 +139,7 @@ namespace leveldb {
         return s;
     }
 
+    /*
     size_t ExpDBImpl::Scan(const leveldb::ReadOptions readOptions, const string &start, size_t num,
                            std::vector<string> &keys, std::vector<string> &values) {
         size_t i = 0;
@@ -185,8 +187,8 @@ namespace leveldb {
 //            std::cerr<<"end scan\n";
     return i;
 }
+     */
 
-/*
     size_t ExpDBImpl::Scan(const leveldb::ReadOptions readOptions, const string &start, size_t num,
                            std::vector<string> &keys, std::vector<string> &values) {
         size_t i = 0;
@@ -213,6 +215,7 @@ namespace leveldb {
                 if (!iter->Valid()) std::cerr << "not valid\n";
             }
             // wait for all threads to complete
+            uint64_t wait = NowMiros();
             for(auto &fs:s) {
                 try {
                     fs.wait();
@@ -221,13 +224,15 @@ namespace leveldb {
                     break;
                 }
             }
+            STATS::time(STATS::getInstance()->waitScanThreadsFinish, wait, NowMiros());
 //            std::cerr<<"end scan\n";
         }
         return i;
     }
-    */
 
-bool ExpDBImpl::GetProperty(const leveldb::Slice &property, std::string *value) { return true; }
+bool ExpDBImpl::GetProperty(const leveldb::Slice &property, std::string *value) {
+        return indexDB_->GetProperty(property,value);
+    }
 
 Status ExpDBImpl::Delete(const leveldb::WriteOptions writeOptions, const string &key) {
     return indexDB_->Delete(writeOptions, key);
@@ -255,9 +260,9 @@ Status ExpDBImpl::MakeRoomForWrite(bool force) {
         if (!force && (mem_->ApproximateMemoryUsage() <= options_.vlogMemSize)) {
             break;
         } else if (imm_ != nullptr) {
-            std::cerr << "wait background finish\n";
+//            std::cerr << "wait background finish\n";
             background_work_finished_signal_.Wait();
-            std::cerr << "wait finish done\n";
+//            std::cerr << "wait finish done\n";
         } else {
             imm_ = mem_;
             has_imm_.Release_Store(imm_);
@@ -354,20 +359,20 @@ Status ExpDBImpl::WriteVlog(MemTable *mem) {
     for (; iter->Valid(); iter->Next()) {
         // TODO: debug key sequence number
         std::string key = iter->key().ToString();
-        key = key.substr(0, key.size() - 8);
+        key = key.substr(0, key.size() - 8); //last 8 byte is sequence number
         std::string val = iter->value().ToString();
         size_t keySize = key.size();
         size_t valueSize = val.size();
         std::string keySizeStr = std::to_string(keySize);
         std::string valueSizeStr = std::to_string(valueSize);
 
-        std::string vlogStr =
-                keySizeStr + "$" + valueSizeStr + "$" + key + val; // | key size | value size | key | value |
+        std::string vlogStr = "";
+        appendStr(vlogStr,{keySizeStr,"$",valueSizeStr,"$",key,val}); // | key size | value size | key | value |
         fwrite(vlogStr.c_str(), vlogStr.size(), 1, f);
         size_t vlogOffset = ftell(f) - val.size();
         std::string vlogOffsetStr = std::to_string(vlogOffset);
-        std::string indexStr = std::to_string(vlogNum) + "$" + vlogOffsetStr + "$" +
-                               valueSizeStr; // |vlog file number|offset|size|
+        std::string indexStr = "";
+        appendStr(indexStr,{std::to_string(vlogNum),"$",vlogOffsetStr,"$",valueSizeStr});// |vlog file number|offset|size|
         s = indexDB_->Put(WriteOptions(), key, indexStr);
         if (!s.ok()) return s;
     }
@@ -394,6 +399,7 @@ Status ExpDBImpl::readValue(string &valueInfo, string *val) {
 
     char value[valueSize];
     FILE *f = OpenVlog(vlogNum);
+    readahead(fileno(f),offset,8192); // prefetch
     size_t got = pread(fileno(f), value, valueSize, offset);
     if (got != valueSize) {
         s.IOError("get value error\n");

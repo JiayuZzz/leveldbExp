@@ -4,6 +4,7 @@
 
 #include "db/vlog_impl.h"
 #include "unistd.h"
+#include "funcs.h"
 
 namespace leveldb {
 
@@ -40,12 +41,14 @@ namespace leveldb {
         string keySizeStr = std::to_string(keySize);
         string valueSizeStr = std::to_string(valueSize);
 
-        string vlogStr = keySizeStr + "$" + valueSizeStr + "$" + key + val; // | key size | value size | key | value |
+        string vlogStr = "";
+        appendStr(vlogStr,{keySizeStr,"$",valueSizeStr,"$",key,val}); // | key size | value size | key | value |
         fwrite(vlogStr.c_str(), vlogStr.size(), 1, vlog_);
 
         long vlogOffset = ftell(vlog_) - val.size();
         string vlogOffsetStr = std::to_string(vlogOffset);
-        string indexStr = vlogOffsetStr + "$" + valueSizeStr;
+        string indexStr = "";
+        appendStr(indexStr,{vlogOffsetStr,"$",valueSizeStr});
         Status s = indexDB_->Put(writeOptions, key, indexStr);
         STATS::timeAndCount(STATS::getInstance()->writeVlogStat, startMicro, NowMiros());
         return s;
