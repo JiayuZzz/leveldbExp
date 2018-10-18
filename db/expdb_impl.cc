@@ -42,10 +42,10 @@ namespace leveldb {
 
     ExpDBImpl::ExpDBImpl(ExpOptions raw_options, const std::string &dbname, const std::string &vlogdir, Status &s)
             : options_(raw_options), vlogDir_(vlogdir), env_(raw_options.env),
-              internal_comparator_(raw_options.comparator),
+              internal_comparator_(raw_options.comparator), lastSequence_(0),
               background_work_finished_signal_(&mutex_) {
-        next_vlog_num_ = 0;
-        openedVlog = std::vector<FILE *>(options_.numOpenfile);
+        nextVlogNum_ = 0;
+        openedVlog_ = std::vector<FILE *>(options_.numOpenfile);
         mem_ = new MemTable(internal_comparator_);
         has_imm_.Release_Store(nullptr);
         threadPool_ = new ThreadPool(options_.numThreads);
@@ -54,10 +54,13 @@ namespace leveldb {
         if (access(vlogDir_.c_str(), F_OK) != 0 && options_.create_if_missing) {
             env_->CreateDir(vlogDir_);
         }
+
+        Recover();  //recover nextvlognum and lastsequence
         return;
     }
 
     ExpDBImpl::~ExpDBImpl() {
+        indexDB_->Put(leveldb::WriteOptions(),"lastSequence",std::to_string(lastSequence_));
         mutex_.Lock();
         while (background_compaction_scheduled_) {
             background_work_finished_signal_.Wait();
@@ -65,11 +68,22 @@ namespace leveldb {
         mutex_.Unlock();
         if (mem_ != nullptr) mem_->Unref();
         if (imm_ != nullptr) imm_->Unref();
-        for (FILE *f:openedVlog) {
+        for (FILE *f:openedVlog_) {
             if (f) fclose(f);
         }
         delete indexDB_;
         delete threadPool_;
+    }
+
+    void ExpDBImpl::Recover() {
+        std::string nextVlogNumStr, lastSequenceStr;
+        //restore next vlognumber and lastsequence
+        indexDB_->Get(leveldb::ReadOptions(),"nextVlogNum",&nextVlogNumStr);
+        indexDB_->Get(leveldb::ReadOptions(),"lastSequence",&lastSequenceStr);
+        if(nextVlogNumStr!="") nextVlogNum_ = std::stoi(nextVlogNumStr);
+        if(lastSequenceStr!="") lastSequence_ = std::stoul(lastSequenceStr);
+        std::cerr<<"next vlog num:"<<nextVlogNum_<<std::endl;
+        std::cerr<<"last sequence:"<<lastSequence_<<std::endl;
     }
 
     Status ExpDBImpl::Write(const leveldb::WriteOptions &options, leveldb::WriteBatch *my_batch) {
@@ -94,6 +108,8 @@ namespace leveldb {
         Writer *last_writer = &w;
         if (status.ok() && my_batch != nullptr) {
             WriteBatch *updates = BuildBatchGroup(&last_writer);
+            WriteBatchInternal::SetSequence(updates, lastSequence_+1);
+            lastSequence_+=WriteBatchInternal::Count(updates);
             {
                 mutex_.Unlock();
                 status = WriteBatchInternal::InsertInto(updates, mem_);
@@ -174,6 +190,7 @@ namespace leveldb {
                 readValues(m.first,m.second,values);
                 s[j++] = threadPool_->addTask(&ExpDBImpl::readValues,this,m.first,std::ref(m.second),std::ref(values));
             }
+            uint64_t wait = NowMiros();
             for (auto &fs:s) {
                 try {
                     Status s = fs.get();
@@ -183,6 +200,7 @@ namespace leveldb {
                     break;
                 }
             }
+            STATS::time(STATS::getInstance()->waitScanThreadsFinish, wait, NowMiros());
         }
 //            std::cerr<<"end scan\n";
     return i;
@@ -343,11 +361,13 @@ Status ExpDBImpl::WriteVlog(MemTable *mem) {
     Iterator *iter = mem->NewIterator();
     mutex_.Unlock();
     iter->SeekToFirst();
-    int vlogNum = next_vlog_num_;
+    int vlogNum = nextVlogNum_;
     FILE *f;
     if (iter->Valid()) {
         f = OpenVlog(vlogNum);
-        next_vlog_num_++;
+        nextVlogNum_++;
+        // persist in lsm
+        indexDB_->Put(leveldb::WriteOptions(),"nextVlogNum",std::to_string(nextVlogNum_));
     } else {
         return s.NotFound("Invalid Mem Iterator");
     }
@@ -382,10 +402,10 @@ Status ExpDBImpl::WriteVlog(MemTable *mem) {
 FILE *ExpDBImpl::OpenVlog(int vlogNum) {
     std::string filename = vlogDir_ + "/" + std::to_string(vlogNum);
     assert(vlogNum <= options_.numOpenfile);
-    if (openedVlog[vlogNum] == nullptr) {
-        openedVlog[vlogNum] = fopen(filename.c_str(), "a+");
+    if (openedVlog_[vlogNum] == nullptr) {
+        openedVlog_[vlogNum] = fopen(filename.c_str(), "a+");
     }
-    return openedVlog[vlogNum];
+    return openedVlog_[vlogNum];
 
 }
 
@@ -399,7 +419,7 @@ Status ExpDBImpl::readValue(string &valueInfo, string *val) {
 
     char value[valueSize];
     FILE *f = OpenVlog(vlogNum);
-    readahead(fileno(f),offset,8192); // prefetch
+    readahead(fileno(f),offset,4096); // prefetch
     size_t got = pread(fileno(f), value, valueSize, offset);
     if (got != valueSize) {
         s.IOError("get value error\n");

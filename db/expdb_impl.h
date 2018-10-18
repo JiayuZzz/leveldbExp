@@ -55,9 +55,10 @@ namespace leveldb {
         std::deque<Writer*> writers_ GUARDED_BY(mutex_);
         WriteBatch* tmp_batch_ GUARDED_BY(mutex_);
         port::CondVar background_work_finished_signal_ GUARDED_BY(mutex_);
-        std::atomic<int> next_vlog_num_;
+        std::atomic<int> nextVlogNum_;
         bool background_compaction_scheduled_;
-        std::vector<FILE*> openedVlog;
+        std::vector<FILE*> openedVlog_;
+        uint64_t lastSequence_;
 
         FILE* OpenVlog(int vlogNum);  // open a vlog file
         WriteBatch* BuildBatchGroup(Writer** last_writer)
@@ -71,6 +72,7 @@ namespace leveldb {
         Status readValues(int vlogNum,const std::vector<ScanMeta>& metas,
                           std::vector<std::string> &values);
         void parseValueInfo(string &valueInfo, int& vlogNum, size_t& offset, size_t& valueSize);
+        void Recover();
     };
 }
 

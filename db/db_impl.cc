@@ -819,6 +819,7 @@ Status DBImpl::OpenCompactionOutputFile(CompactionState* compact) {
 
 Status DBImpl::FinishCompactionOutputFile(CompactionState* compact,
                                           Iterator* input) {
+  uint64_t startMicros = NowMiros();
   assert(compact != nullptr);
   assert(compact->outfile != nullptr);
   assert(compact->builder != nullptr);
@@ -866,6 +867,7 @@ Status DBImpl::FinishCompactionOutputFile(CompactionState* compact,
           (unsigned long long) current_bytes);
     }
   }
+  STATS::time(STATS::getInstance()->compactionOutputTime,startMicros,NowMiros());
   return s;
 }
 
@@ -920,6 +922,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   std::string current_user_key;
   bool has_current_user_key = false;
   SequenceNumber last_sequence_for_key = kMaxSequenceNumber;
+  uint64_t startIter = NowMiros();
   for (; input->Valid() && !shutting_down_.Acquire_Load(); ) {
     // Prioritize immutable compaction work
     if (has_imm_.NoBarrier_Load() != nullptr) {
@@ -1000,7 +1003,9 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
         compact->current_output()->smallest.DecodeFrom(key);
       }
       compact->current_output()->largest.DecodeFrom(key);
+      int64_t startAdd = NowMiros();
       compact->builder->Add(key, input->value());
+      STATS::time(STATS::getInstance()->compactionAddToBuilder,startAdd,NowMiros());
 
       // Close output file if it is big enough
       if (compact->builder->FileSize() >=
@@ -1014,6 +1019,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
 
     input->Next();
   }
+  STATS::time(STATS::getInstance()->compactionIterTime,startIter,NowMiros()+imm_micros);
 
   if (status.ok() && shutting_down_.Acquire_Load()) {
     status = Status::IOError("Deleting DB during compaction");

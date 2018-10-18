@@ -341,6 +341,7 @@ void SkipList<Key,Comparator>::Insert(const Key& key) {
   Node* x = FindGreaterOrEqual(key, prev);
 
   // Our data structure does not allow duplicate insertion
+  //TODO : debug
   assert(x == nullptr || !Equal(key, x->key));
 
   int height = RandomHeight();
