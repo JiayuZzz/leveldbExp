@@ -43,10 +43,12 @@ namespace leveldb {
     ExpDBImpl::ExpDBImpl(ExpOptions raw_options, const std::string &dbname, const std::string &vlogdir, Status &s)
             : options_(raw_options), vlogDir_(vlogdir), env_(raw_options.env),
               internal_comparator_(raw_options.comparator), lastSequence_(0),
-              background_work_finished_signal_(&mutex_) {
+              background_work_finished_signal_(&mutex_),numVisited(0),background_compaction_scheduled_(false),tmp_batch_(new WriteBatch) {
         nextVlogNum_ = 0;
+        visited = std::set<int>();
         openedVlog_ = std::vector<FILE *>(options_.numOpenfile);
         mem_ = new MemTable(internal_comparator_);
+        mem_->Ref();
         has_imm_.Release_Store(nullptr);
         threadPool_ = new ThreadPool(options_.numThreads);
         s = DB::Open(raw_options, dbname, &indexDB_);
@@ -60,6 +62,9 @@ namespace leveldb {
     }
 
     ExpDBImpl::~ExpDBImpl() {
+        uint32_t numScan = STATS::getInstance()->scanVlogStat.first;
+        if(options_.numThreads==1&&numScan>0)
+        std::cerr<<"######scan read "<<numVisited/numScan<<" vlogfiles in average#######\n";
         indexDB_->Put(leveldb::WriteOptions(),"lastSequence",std::to_string(lastSequence_));
         mutex_.Lock();
         while (background_compaction_scheduled_) {
@@ -96,20 +101,21 @@ namespace leveldb {
 //        std::cerr << "done lock\n";
         writers_.push_back(&w);
         while (!w.done && &w != writers_.front()) {
-//            std::cerr << "writer wait\n";
+            std::cerr << "writer wait\n";
             w.cv.Wait();
-//            std::cerr << "wait done\n";
+            std::cerr << "wait done\n";
         }
         if (w.done) {
             return w.status;
         }
         Status status = MakeRoomForWrite(my_batch == nullptr);//make room for writes here
 //        std::cerr << "done make room\n";
+        uint64_t lastSequence = lastSequence_;
         Writer *last_writer = &w;
         if (status.ok() && my_batch != nullptr) {
             WriteBatch *updates = BuildBatchGroup(&last_writer);
-            WriteBatchInternal::SetSequence(updates, lastSequence_+1);
-            lastSequence_+=WriteBatchInternal::Count(updates);
+            WriteBatchInternal::SetSequence(updates, lastSequence+1);
+            lastSequence+=WriteBatchInternal::Count(updates);
             {
                 mutex_.Unlock();
                 status = WriteBatchInternal::InsertInto(updates, mem_);
@@ -118,6 +124,9 @@ namespace leveldb {
 //                std::cerr << "mem done lock\n";
             }
             if (updates == tmp_batch_) tmp_batch_->Clear();
+            if(lastSequence>lastSequence_)
+                lastSequence_ = lastSequence;
+//            std::cerr<<"done write mem\n";
         }
 
         while (true) {
@@ -136,6 +145,54 @@ namespace leveldb {
         }
 
         return status;
+    }
+
+    WriteBatch *ExpDBImpl::BuildBatchGroup(leveldb::ExpDBImpl::Writer **last_writer) {
+        mutex_.AssertHeld();
+        assert(!writers_.empty());
+        Writer *first = writers_.front();
+        WriteBatch *result = first->batch;
+        assert(result != nullptr);
+
+        size_t size = WriteBatchInternal::ByteSize(first->batch);
+
+        // Allow the group to grow up to a maximum size, but if the
+        // original write is small, limit the growth so we do not slow
+        // down the small write too much.
+        size_t max_size = 1 << 20;
+        if (size <= (128 << 10)) {
+            max_size = size + (128 << 10);
+        }
+
+        *last_writer = first;
+        std::deque<Writer *>::iterator iter = writers_.begin();
+        ++iter;  // Advance past "first"
+        for (; iter != writers_.end(); ++iter) {
+            Writer *w = *iter;
+            if (w->sync && !first->sync) {
+                // Do not include a sync write into a batch handled by a non-sync write.
+                break;
+            }
+
+            if (w->batch != nullptr) {
+                size += WriteBatchInternal::ByteSize(w->batch);
+                if (size > max_size) {
+                    // Do not make batch too big
+                    break;
+                }
+
+                // Append to *result
+                if (result == first->batch) {
+                    // Switch to temporary batch instead of disturbing caller's batch
+                    result = tmp_batch_;
+                    assert(WriteBatchInternal::Count(result) == 0);
+                    WriteBatchInternal::Append(result, first->batch);
+                }
+                WriteBatchInternal::Append(result, w->batch);
+            }
+            *last_writer = w;
+        }
+        return result;
     }
 
     Status ExpDBImpl::Put(const leveldb::WriteOptions writeOptions, const string &key, const string &val) {
@@ -245,6 +302,8 @@ namespace leveldb {
             STATS::time(STATS::getInstance()->waitScanThreadsFinish, wait, NowMiros());
 //            std::cerr<<"end scan\n";
         }
+        numVisited += visited.size();
+        visited.clear();
         return i;
     }
 
@@ -265,8 +324,35 @@ void ExpDBImpl::MaybeScheduleCompaction() {
         //nothing to do
     } else {
         background_compaction_scheduled_ = true;
-        threadPool_->addTask(&ExpDBImpl::CompactMemtable, this);
+        threadPool_->addTask(&ExpDBImpl::CompactMemtable,this);
+//        env_->Schedule(&ExpDBImpl::BGWork,this);
+//        threadPool_->addTask(&ExpDBImpl::CompactMemtable, this);
     }
+}
+
+// not used
+void ExpDBImpl::BGWork(void *db) {
+    reinterpret_cast<ExpDBImpl*>(db)->BackgroundCall();
+}
+
+
+// not used
+void ExpDBImpl::BackgroundCall() {
+//    std::cerr<<"backgroundcall\n";
+    MutexLock l(&mutex_);
+    assert(background_compaction_scheduled_);
+
+    if(imm_!=nullptr) {
+//        std::cerr<<"compactmem\n";
+        CompactMemtable();
+//        std::cerr<<"done compact\n";
+    }
+    background_work_finished_signal_.SignalAll();
+    background_compaction_scheduled_ = false;
+//    std::cerr<<"before schedule\n";
+    MaybeScheduleCompaction();
+//    std::cerr<<"end schedule\n";
+    background_work_finished_signal_.SignalAll();
 }
 
 Status ExpDBImpl::MakeRoomForWrite(bool force) {
@@ -293,65 +379,23 @@ Status ExpDBImpl::MakeRoomForWrite(bool force) {
     return s;
 }
 
-WriteBatch *ExpDBImpl::BuildBatchGroup(leveldb::ExpDBImpl::Writer **last_writer) {
-    mutex_.AssertHeld();
-    assert(!writers_.empty());
-    Writer *first = writers_.front();
-    WriteBatch *result = first->batch;
-    assert(result != nullptr);
-
-    size_t size = WriteBatchInternal::ByteSize(first->batch);
-
-    // Allow the group to grow up to a maximum size, but if the
-    // original write is small, limit the growth so we do not slow
-    // down the small write too much.
-    size_t max_size = 1 << 20;
-    if (size <= (128 << 10)) {
-        max_size = size + (128 << 10);
-    }
-
-    *last_writer = first;
-    std::deque<Writer *>::iterator iter = writers_.begin();
-    ++iter;  // Advance past "first"
-    for (; iter != writers_.end(); ++iter) {
-        Writer *w = *iter;
-        if (w->sync && !first->sync) {
-            // Do not include a sync write into a batch handled by a non-sync write.
-            break;
-        }
-
-        if (w->batch != nullptr) {
-            size += WriteBatchInternal::ByteSize(w->batch);
-            if (size > max_size) {
-                // Do not make batch too big
-                break;
-            }
-
-            // Append to *result
-            if (result == first->batch) {
-                // Switch to temporary batch instead of disturbing caller's batch
-                result = tmp_batch_;
-                assert(WriteBatchInternal::Count(result) == 0);
-                WriteBatchInternal::Append(result, first->batch);
-            }
-            WriteBatchInternal::Append(result, w->batch);
-        }
-        *last_writer = w;
-    }
-    return result;
-}
-
 
 Status ExpDBImpl::CompactMemtable() {
     mutex_.AssertHeld();
     assert(imm_ != nullptr);
+//    std::cerr<<"begin write vlog\n";
     Status s = WriteVlog(imm_);
-    background_work_finished_signal_.SignalAll();
+//    std::cerr<<"done write vlog\n";
     if (s.ok()) {
+        imm_->Unref();
         imm_ = nullptr;
         has_imm_.Release_Store(nullptr);
-        background_compaction_scheduled_ = false;
+    } else {
+        std::cerr<<"write vlog error\n";
+        std::cerr<<s.ToString()<<std::endl;
     }
+    background_compaction_scheduled_ = false;
+    background_work_finished_signal_.SignalAll();
     return s;
 }
 
@@ -376,11 +420,24 @@ Status ExpDBImpl::WriteVlog(MemTable *mem) {
      * format: <key size, value size, key, value>
     * use '$' to seperate offset and value size, key size and value size, value size and key
     */
-    for (; iter->Valid(); iter->Next()) {
+    std::future<Status> ret;
+    while(iter->Valid()) {
         // TODO: debug key sequence number
         std::string key = iter->key().ToString();
         key = key.substr(0, key.size() - 8); //last 8 byte is sequence number
         std::string val = iter->value().ToString();
+        iter->Next();
+        // deduplicate same keys
+        while(iter->Valid()){
+            std::string key1 = iter->key().ToString();
+            key1 = key1.substr(0, key1.size() - 8);
+            if(key1==key) {
+                val = iter->value().ToString();
+                iter->Next();
+            } else {
+                break;
+            }
+        }
         size_t keySize = key.size();
         size_t valueSize = val.size();
         std::string keySizeStr = std::to_string(keySize);
@@ -393,7 +450,7 @@ Status ExpDBImpl::WriteVlog(MemTable *mem) {
         std::string vlogOffsetStr = std::to_string(vlogOffset);
         std::string indexStr = "";
         appendStr(indexStr,{std::to_string(vlogNum),"$",vlogOffsetStr,"$",valueSizeStr});// |vlog file number|offset|size|
-        s = indexDB_->Put(WriteOptions(), key, indexStr);
+         s = indexDB_->Put(WriteOptions(), key, indexStr);
         if (!s.ok()) return s;
     }
     return s;
@@ -419,7 +476,9 @@ Status ExpDBImpl::readValue(string &valueInfo, string *val) {
 
     char value[valueSize];
     FILE *f = OpenVlog(vlogNum);
-    readahead(fileno(f),offset,4096); // prefetch
+    if(options_.numThreads==1)
+        if(visited.find(vlogNum)==visited.end()) visited.insert(vlogNum);
+//    readahead(fileno(f),offset,8192); // prefetch
     size_t got = pread(fileno(f), value, valueSize, offset);
     if (got != valueSize) {
         s.IOError("get value error\n");

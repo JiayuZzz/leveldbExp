@@ -25,7 +25,6 @@ namespace leveldb {
 
         statType writeStat;
         statType readStat;
-        statType writeLogStat;
         statType readVlogStat;
         statType scanVlogStat;
         statType writeVlogStat;
@@ -48,17 +47,10 @@ namespace leveldb {
             printf("\n");
             printVlogRW();
             printRW();
-            printWriteLog();
             printf("\n");
         }
 
-        void printWriteLog() {
-            double time = writeLogStat.second;
-            uint32_t cnt = writeLogStat.first;
-            printf("Write log time: %.2f s, Avg: %.2f us, proportion of write:%.2f\n", time / 1000000, time / cnt,
-                   time / writeStat.second);
-        }
-
+        // print lsm-tree read/write stats
         void printRW() {
             uint32_t writeCnt = writeStat.first;
             double writeTime = writeStat.second;
@@ -73,11 +65,12 @@ namespace leveldb {
             printf("LSM-Tree read time: %.2f s, count: %u, read latency: %.2f us\n", readTime / 1000000, readCnt,
                    readTime / readCnt);
             printf("LSM-Tree write memtable time: %.2f s\n", memTime / 1000000);
-            printf("LSM-Tree compactionIterTime: %.2f s\n", cIterTime / 1000000);
+            printf("LSM-Tree compactionIterTime (compaction - outputfile): %.2f s\n", cIterTime / 1000000);
             printf("LSM-Tree compaction output file time: %.2f s\n", cOutputTime / 1000000);
             printf("LSM-Tree compaction add to builder time: %.2f s\n", builderTime / 1000000);
         }
 
+        // print vlog/expdb read/write stats
         void printVlogRW() {
             uint32_t writeCnt = writeVlogStat.first;
             double writeTime = writeVlogStat.second;

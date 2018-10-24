@@ -5,6 +5,8 @@
 #ifndef STORAGE_LEVELDB_PORT_PORT_STDCXX_H_
 #define STORAGE_LEVELDB_PORT_PORT_STDCXX_H_
 
+#include <iostream>
+
 // port/port_config.h availability is automatically detected via __has_include
 // in newer compilers. If LEVELDB_HAS_PORT_CONFIG_H is defined, it overrides the
 // configuration detection.

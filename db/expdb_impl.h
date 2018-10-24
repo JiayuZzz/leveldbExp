@@ -14,6 +14,7 @@
 #include <port/port.h>
 #include "db/dbformat.h"
 #include <map>
+#include <set>
 
 
 namespace leveldb {
@@ -59,6 +60,9 @@ namespace leveldb {
         bool background_compaction_scheduled_;
         std::vector<FILE*> openedVlog_;
         uint64_t lastSequence_;
+        //for record read average files read during scan
+        std::set<int> visited;
+        uint64_t numVisited;
 
         FILE* OpenVlog(int vlogNum);  // open a vlog file
         WriteBatch* BuildBatchGroup(Writer** last_writer)
@@ -67,6 +71,8 @@ namespace leveldb {
         EXCLUSIVE_LOCKS_REQUIRED(mutex_);
         void MaybeScheduleCompaction();
         Status CompactMemtable();
+        static void BGWork(void *db);
+        void BackgroundCall();
         Status WriteVlog(MemTable* mem);
         Status readValue(string &valueInfo, string *val);
         Status readValues(int vlogNum,const std::vector<ScanMeta>& metas,
