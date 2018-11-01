@@ -18,7 +18,7 @@ namespace leveldb {
     //singleton statistics class
     class Stats {
     public:
-        static Stats *getInstance() {
+        static Stats *GetInstance() {
             static Stats expStats;
             return &expStats;
         }
@@ -28,18 +28,20 @@ namespace leveldb {
         statType readVlogStat;
         statType scanVlogStat;
         statType writeVlogStat;
+        uint64_t scanVlogIter;
         uint64_t writeMemtable;
         uint64_t waitScanThreadsFinish;
         uint64_t compactionIterTime;             //time of iteration during compaction
         uint64_t compactionOutputTime;           //time of writing output file during compaction
         uint64_t compactionAddToBuilder;         //time of adding kv to table builder
+        uint64_t assignThread;
 
-        static void timeAndCount(statType &stat, uint64_t start, uint64_t end) {
+        static void TimeAndCount(statType &stat, uint64_t start, uint64_t end) {
             stat.first++;
             stat.second += (end - start);
         }
 
-        static void time(uint64_t &stat, uint64_t start, uint64_t end) {
+        static void Time(uint64_t &stat, uint64_t start, uint64_t end) {
             stat += (end - start);
         }
 
@@ -78,12 +80,16 @@ namespace leveldb {
             double readTime = readVlogStat.second;
             uint32_t scanCnt = scanVlogStat.first;
             double scanTime = scanVlogStat.second;
+            double iterTime = scanVlogIter;
+            double assign = assignThread;
             printf("Total vlogdb write time: %.2f s, count: %u, write latency: %.2f us\n", writeTime / 1000000,
                    writeCnt, writeTime / writeCnt);
             printf("Total vlogdb read time: %.2f s, count: %u, read latency: %.2f us\n", readTime / 1000000, readCnt,
                    readTime / readCnt);
             printf("Total vlogdb scan time:%.2f s, count: %u, scan latency: %.2f us\n", scanTime / 1000000, scanCnt,
                    scanTime / scanCnt);
+            printf("Vlog scan LSM-Tree iter time: %.2f s\n",iterTime / 1000000);
+            printf("Assign vlog thread time: %.2f s\n",assign/1000000);
             printf("Wait vlog scan threads finish time: %.2f s\n", (double) waitScanThreadsFinish / 1000000);
         }
 

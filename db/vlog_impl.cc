@@ -50,7 +50,7 @@ namespace leveldb {
         string indexStr = "";
         appendStr(indexStr,{vlogOffsetStr,"$",valueSizeStr});
         Status s = indexDB_->Put(writeOptions, key, indexStr);
-        STATS::timeAndCount(STATS::getInstance()->writeVlogStat, startMicro, NowMiros());
+        STATS::TimeAndCount(STATS::GetInstance()->writeVlogStat, startMicro, NowMiros());
         return s;
     }
 
@@ -64,14 +64,14 @@ namespace leveldb {
         Status s = indexDB_->Get(readOptions, key, &valueInfo);
         if (!s.ok()) return s;
         s = readValue(valueInfo, val);
-        STATS::timeAndCount(STATS::getInstance()->readVlogStat, startMicro, NowMiros());
+        STATS::TimeAndCount(STATS::GetInstance()->readVlogStat, startMicro, NowMiros());
         return s;
     }
 
     Status VlogDBImpl::Delete(const leveldb::WriteOptions writeOptions, const string &key) {
         uint64_t startMicro = NowMiros();
         Status s = indexDB_->Delete(writeOptions, key);
-        STATS::timeAndCount(STATS::getInstance()->writeVlogStat, startMicro, NowMiros());
+        STATS::TimeAndCount(STATS::GetInstance()->writeVlogStat, startMicro, NowMiros());
         return s;
     }
 
@@ -92,6 +92,7 @@ namespace leveldb {
 
         //for main thread waiting
         std::future<Status> s[num];
+        uint64_t iterStart = NowMiros();
         for (i = 0; i < num && iter->Valid(); i++) {
             keys[i] = iter->key().ToString();
             valueInfos[i] = iter->value().ToString();
@@ -102,6 +103,8 @@ namespace leveldb {
             iter->Next();
             if (!iter->Valid()) std::cerr << "not valid\n";
         }
+        delete(iter);
+        STATS::Time(STATS::GetInstance()->scanVlogIter,iterStart,NowMiros());
         // wait for all threads to complete
         uint64_t wait = NowMiros();
         for (auto &fs:s) {
@@ -112,8 +115,8 @@ namespace leveldb {
                 break;
             }
         }
-        STATS::time(STATS::getInstance()->waitScanThreadsFinish, wait, NowMiros());
-        STATS::timeAndCount(STATS::getInstance()->scanVlogStat, startMicro, NowMiros());
+        STATS::Time(STATS::GetInstance()->waitScanThreadsFinish, wait, NowMiros());
+        STATS::TimeAndCount(STATS::GetInstance()->scanVlogStat, startMicro, NowMiros());
         return i;
     }
 

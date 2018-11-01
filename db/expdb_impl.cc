@@ -21,15 +21,6 @@ namespace leveldb {
         explicit Writer(port::Mutex *mu) : cv(mu) {}
     };
 
-    struct ExpDBImpl::ScanMeta {
-        size_t index;
-        size_t offset;
-        size_t valueSize;
-
-        explicit ScanMeta(size_t i, size_t o, size_t v):index(i),offset(o),valueSize(v){}
-    };
-
-
     Status ExpDB::Open(leveldb::ExpOptions options, const std::string &dbname, const std::string &vlogdir,
                        leveldb::ExpDB **db) {
         *db = nullptr;
@@ -62,7 +53,7 @@ namespace leveldb {
     }
 
     ExpDBImpl::~ExpDBImpl() {
-        uint32_t numScan = STATS::getInstance()->scanVlogStat.first;
+        uint32_t numScan = STATS::GetInstance()->scanVlogStat.first;
         if(options_.numThreads==1&&numScan>0)
         std::cerr<<"######scan read "<<numVisited/numScan<<" vlogfiles in average#######\n";
         indexDB_->Put(leveldb::WriteOptions(),"lastSequence",std::to_string(lastSequence_));
@@ -212,60 +203,10 @@ namespace leveldb {
         return s;
     }
 
-    /*
+/*
     size_t ExpDBImpl::Scan(const leveldb::ReadOptions readOptions, const string &start, size_t num,
                            std::vector<string> &keys, std::vector<string> &values) {
-        size_t i = 0;
-        if (keys.size() < num)
-            keys.resize(num);
-        if (values.size() < num)
-            values.resize(num);
-        std::vector<std::string> valueInfos(num);
-
-        auto iter = indexDB_->NewIterator(readOptions);
-        iter->Seek(start);
-
-        if (iter->Valid()) {
-            int vlogNum;
-            size_t offset, valueSize;
-            std::string valueInfo;
-            std::map<int, std::vector<ScanMeta>> metas;
-            // get all values metadata
-            for (; i < num && iter->Valid(); i++, iter->Next()) {
-                keys[i] = iter->key().ToString();
-                indexDB_->Get(ReadOptions(), keys[i],&valueInfo);
-                parseValueInfo(valueInfo,vlogNum,offset,valueSize);
-                if(metas.find(vlogNum)==metas.end()) {
-                    metas[vlogNum] = std::vector<ScanMeta>();
-                }
-                metas[vlogNum].emplace_back(ScanMeta(i,vlogNum,valueSize));
-            }
-            std::future<Status> s[metas.size()];
-            int j=0;
-            // read values from vlog files, each thread read one of them
-            for(auto &m:metas) {
-                readValues(m.first,m.second,values);
-                s[j++] = threadPool_->addTask(&ExpDBImpl::readValues,this,m.first,std::ref(m.second),std::ref(values));
-            }
-            uint64_t wait = NowMiros();
-            for (auto &fs:s) {
-                try {
-                    Status s = fs.get();
-                    if(!s.ok()) std::cerr<<"read error\n";
-                    // if no that many keys
-                } catch (const std::future_error &e) {
-                    break;
-                }
-            }
-            STATS::time(STATS::getInstance()->waitScanThreadsFinish, wait, NowMiros());
-        }
-//            std::cerr<<"end scan\n";
-    return i;
-}
-     */
-
-    size_t ExpDBImpl::Scan(const leveldb::ReadOptions readOptions, const string &start, size_t num,
-                           std::vector<string> &keys, std::vector<string> &values) {
+        uint64_t startMicros = NowMiros();
         size_t i = 0;
         if (keys.size() < num)
             keys.resize(num);
@@ -280,15 +221,20 @@ namespace leveldb {
             // for thread join
             std::future<Status> s[num];
 //            std::cerr << "begin scan\n";
+            uint64_t iterStart = NowMiros();
             for (; i < num && iter->Valid(); i++) {
                 keys[i] = iter->key().ToString();
                 valueInfos[i] = iter->value().ToString();
 //                std::cerr<<"add task\n";
+                uint64_t assignStart = NowMiros();
                 s[i] = threadPool_->addTask(&ExpDBImpl::readValue, this, std::ref(valueInfos[i]), &values[i]);
+                STATS::Time(STATS::GetInstance()->assignThread,assignStart,NowMiros());
 //                std::cerr<<"finish add\n";
                 iter->Next();
                 if (!iter->Valid()) std::cerr << "not valid\n";
             }
+            delete(iter);
+            STATS::Time(STATS::GetInstance()->scanVlogIter,iterStart,NowMiros());
             // wait for all threads to complete
             uint64_t wait = NowMiros();
             for(auto &fs:s) {
@@ -299,13 +245,97 @@ namespace leveldb {
                     break;
                 }
             }
-            STATS::time(STATS::getInstance()->waitScanThreadsFinish, wait, NowMiros());
+            STATS::Time(STATS::GetInstance()->waitScanThreadsFinish, wait, NowMiros());
 //            std::cerr<<"end scan\n";
         }
+        STATS::TimeAndCount(STATS::GetInstance()->scanVlogStat,startMicros,NowMiros());
         numVisited += visited.size();
         visited.clear();
         return i;
     }
+    */
+
+    size_t ExpDBImpl::Scan(const leveldb::ReadOptions readOptions, const string &start, size_t num,
+                           std::vector<string> &keys, std::vector<string> &values) {
+        uint64_t startMicros = NowMiros();
+        size_t i = 0,j=0;
+        if (keys.size() < num)
+            keys.resize(num);
+        if (values.size() < num)
+            values.resize(num);
+        std::vector<std::string> valueInfos(num);
+
+        auto iter = indexDB_->NewIterator(readOptions);
+        iter->Seek(start);
+        int sep = num/(options_.numThreads*2);
+        if (iter->Valid()) {
+            // for thread join
+            std::vector<std::future<Status>> retStatus;
+//            std::cerr << "begin scan\n";
+            uint64_t iterStart = NowMiros();
+            for (; i < num && iter->Valid(); i++) {
+                keys[i] = iter->key().ToString();
+                valueInfos[i] = iter->value().ToString();
+//                std::cerr<<"add task\n";
+                if((i%(sep)==0&&i!=0)||i==num-1) {
+                    uint64_t assignStart = NowMiros();
+                    retStatus.emplace_back(
+                            threadPool_->addTask(
+                            &ExpDBImpl::ReadValuesForScan, this, std::ref(valueInfos), j, i, std::ref(values)));
+                    STATS::Time(STATS::GetInstance()->assignThread, assignStart, NowMiros());
+                    j = i;
+                }
+//                std::cerr<<"finish add\n";
+                iter->Next();
+                if (!iter->Valid()) std::cerr << "not valid\n";
+            }
+            delete(iter);
+            STATS::Time(STATS::GetInstance()->scanVlogIter,iterStart,NowMiros());
+            // wait for all threads to complete
+            uint64_t wait = NowMiros();
+            for(auto &fs:retStatus) {
+                try {
+                    fs.wait();
+                    // if no that many keys
+                } catch (const std::future_error &e){
+                    break;
+                }
+            }
+            STATS::Time(STATS::GetInstance()->waitScanThreadsFinish, wait, NowMiros());
+//            std::cerr<<"end scan\n";
+        }
+        STATS::TimeAndCount(STATS::GetInstance()->scanVlogStat,startMicros,NowMiros());
+        numVisited += visited.size();
+        visited.clear();
+        return i;
+    }
+
+    Status ExpDBImpl::ReadValuesForScan(const std::vector<std::string> &valueInfos, int begin, int end,
+                                        std::vector<std::string>& vals) {
+        int vlogNum;
+        size_t offset;
+        size_t valueSize;
+        Status s;
+        for(int i=begin;i<end;i++){
+            // get file number, offset and value size
+            parseValueInfo(valueInfos[i], vlogNum, offset, valueSize);
+
+            char value[valueSize];
+            FILE *f = OpenVlog(vlogNum);
+            if(options_.numThreads==1)
+                if(visited.find(vlogNum)==visited.end()) visited.insert(vlogNum);
+            //readahead(fileno(f),offset,4096); // prefetch
+            size_t got = pread(fileno(f), value, valueSize, offset);
+            if (got != valueSize) {
+                s.IOError("get value error\n");
+                std::cerr << "get value error" << std::endl;
+            }
+            vals[i].assign(value, valueSize);
+            if(!s.ok()) return s;
+        }
+        return s;
+    }
+
 
 bool ExpDBImpl::GetProperty(const leveldb::Slice &property, std::string *value) {
         return indexDB_->GetProperty(property,value);
@@ -476,9 +506,6 @@ Status ExpDBImpl::readValue(string &valueInfo, string *val) {
 
     char value[valueSize];
     FILE *f = OpenVlog(vlogNum);
-    if(options_.numThreads==1)
-        if(visited.find(vlogNum)==visited.end()) visited.insert(vlogNum);
-//    readahead(fileno(f),offset,8192); // prefetch
     size_t got = pread(fileno(f), value, valueSize, offset);
     if (got != valueSize) {
         s.IOError("get value error\n");
@@ -488,29 +515,7 @@ Status ExpDBImpl::readValue(string &valueInfo, string *val) {
     return s;
 }
 
-Status ExpDBImpl::readValues(int vlogNum,const std::vector<ScanMeta>& metas,
-                             std::vector<std::string> &values) {
-    Status s;
-    FILE* f = OpenVlog(vlogNum);
-    size_t index,offset,valueSize;
-    for(const ScanMeta& meta:metas){
-        index = meta.index;
-        offset = meta.offset;
-        valueSize = meta.valueSize;
-
-        char value[valueSize];
-        size_t got = pread(fileno(f),value,valueSize,offset);
-        if (got != valueSize) {
-            s.IOError("get value error\n");
-            std::cerr << "get value error" << std::endl;
-            return s;
-        }
-        values[index].assign(value);
-    }
-    return s;
-}
-
-void ExpDBImpl::parseValueInfo(string &valueInfo, int &vlogNum, size_t &offset, size_t &valueSize) {
+void ExpDBImpl::parseValueInfo(const string &valueInfo, int &vlogNum, size_t &offset, size_t &valueSize) {
     size_t offsetSep = valueInfo.find('$');
     size_t sizeSep = valueInfo.rfind('$');
     string vlogNumStr = valueInfo.substr(0, offsetSep);

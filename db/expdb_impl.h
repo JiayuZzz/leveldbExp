@@ -41,7 +41,6 @@ namespace leveldb {
         virtual bool GetProperty(const Slice &property, std::string *value);
 
     private:
-        struct ScanMeta;
         struct Writer;
         DB *indexDB_;
         ExpOptions options_;
@@ -75,9 +74,9 @@ namespace leveldb {
         void BackgroundCall();
         Status WriteVlog(MemTable* mem);
         Status readValue(string &valueInfo, string *val);
-        Status readValues(int vlogNum,const std::vector<ScanMeta>& metas,
-                          std::vector<std::string> &values);
-        void parseValueInfo(string &valueInfo, int& vlogNum, size_t& offset, size_t& valueSize);
+        Status ReadValuesForScan(const std::vector<std::string> &valueInfos, int begin, int end,
+                                 std::vector<std::string>& vals);
+        void parseValueInfo(const string &valueInfo, int& vlogNum, size_t& offset, size_t& valueSize);
         void Recover();
     };
 }
