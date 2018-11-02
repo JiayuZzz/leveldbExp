@@ -1502,9 +1502,12 @@ void DBImpl::GetApproximateSizes(
 // Default implementations of convenience methods that subclasses of DB
 // can call if they wish
 Status DB::Put(const WriteOptions& opt, const Slice& key, const Slice& value) {
+  uint64_t startMicros = NowMiros();
   WriteBatch batch;
   batch.Put(key, value);
-  return Write(opt, &batch);
+  Status s = Write(opt, &batch);
+  STATS::TimeAndCount(STATS::GetInstance()->writeVlogStat, startMicros, NowMiros());
+  return s;
 }
 
 Status DB::Delete(const WriteOptions& opt, const Slice& key) {

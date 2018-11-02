@@ -35,6 +35,7 @@ namespace leveldb {
         uint64_t compactionOutputTime;           //time of writing output file during compaction
         uint64_t compactionAddToBuilder;         //time of adding kv to table builder
         uint64_t assignThread;
+        uint64_t gcTime;
 
         static void TimeAndCount(statType &stat, uint64_t start, uint64_t end) {
             stat.first++;
@@ -82,6 +83,7 @@ namespace leveldb {
             double scanTime = scanVlogStat.second;
             double iterTime = scanVlogIter;
             double assign = assignThread;
+            double gc = gcTime;
             printf("Total vlogdb write time: %.2f s, count: %u, write latency: %.2f us\n", writeTime / 1000000,
                    writeCnt, writeTime / writeCnt);
             printf("Total vlogdb read time: %.2f s, count: %u, read latency: %.2f us\n", readTime / 1000000, readCnt,

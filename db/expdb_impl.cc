@@ -186,26 +186,28 @@ namespace leveldb {
         return result;
     }
 
-    Status ExpDBImpl::Put(const leveldb::WriteOptions writeOptions, const string &key, const string &val) {
+    Status ExpDBImpl::Put(const leveldb::WriteOptions writeOptions, const std::string &key, const std::string &val) {
         WriteBatch batch;
         batch.Put(key, val);
         return Write(writeOptions, &batch);
     }
 
-    Status ExpDBImpl::Get(const leveldb::ReadOptions readOptions, const string &key, string *val) {
+    Status ExpDBImpl::Get(const leveldb::ReadOptions readOptions, const std::string &key, std::string *val) {
         // TODO: search memtable
+        uint64_t startMicros = NowMiros();
         std::string valueInfo;
         // get value metadata from index db
         Status s = indexDB_->Get(readOptions, key, &valueInfo);
         if (s.ok()) {
             s = readValue(valueInfo, val);
         }
+        STATS::TimeAndCount(STATS::GetInstance()->readVlogStat, startMicros, NowMiros());
         return s;
     }
 
 /*
-    size_t ExpDBImpl::Scan(const leveldb::ReadOptions readOptions, const string &start, size_t num,
-                           std::vector<string> &keys, std::vector<string> &values) {
+    size_t ExpDBImpl::Scan(const leveldb::ReadOptions readOptions, const std::string &start, size_t num,
+                           std::vector<std::string> &keys, std::vector<std::string> &values) {
         uint64_t startMicros = NowMiros();
         size_t i = 0;
         if (keys.size() < num)
@@ -255,8 +257,8 @@ namespace leveldb {
     }
     */
 
-    size_t ExpDBImpl::Scan(const leveldb::ReadOptions readOptions, const string &start, size_t num,
-                           std::vector<string> &keys, std::vector<string> &values) {
+    size_t ExpDBImpl::Scan(const leveldb::ReadOptions readOptions, const std::string &start, size_t num,
+                           std::vector<std::string> &keys, std::vector<std::string> &values) {
         uint64_t startMicros = NowMiros();
         size_t i = 0,j=0;
         if (keys.size() < num)
@@ -267,7 +269,7 @@ namespace leveldb {
 
         auto iter = indexDB_->NewIterator(readOptions);
         iter->Seek(start);
-        int sep = num/(options_.numThreads*2);
+        int sep = num/(options_.numThreads*4);
         if (iter->Valid()) {
             // for thread join
             std::vector<std::future<Status>> retStatus;
@@ -324,7 +326,7 @@ namespace leveldb {
             FILE *f = OpenVlog(vlogNum);
             if(options_.numThreads==1)
                 if(visited.find(vlogNum)==visited.end()) visited.insert(vlogNum);
-            //readahead(fileno(f),offset,4096); // prefetch
+            readahead(fileno(f),(offset/4096)*4096,4096);
             size_t got = pread(fileno(f), value, valueSize, offset);
             if (got != valueSize) {
                 s.IOError("get value error\n");
@@ -341,7 +343,7 @@ bool ExpDBImpl::GetProperty(const leveldb::Slice &property, std::string *value) 
         return indexDB_->GetProperty(property,value);
     }
 
-Status ExpDBImpl::Delete(const leveldb::WriteOptions writeOptions, const string &key) {
+Status ExpDBImpl::Delete(const leveldb::WriteOptions writeOptions, const std::string &key) {
     return indexDB_->Delete(writeOptions, key);
 }
 
@@ -493,10 +495,9 @@ FILE *ExpDBImpl::OpenVlog(int vlogNum) {
         openedVlog_[vlogNum] = fopen(filename.c_str(), "a+");
     }
     return openedVlog_[vlogNum];
-
 }
 
-Status ExpDBImpl::readValue(string &valueInfo, string *val) {
+Status ExpDBImpl::readValue(std::string &valueInfo, std::string *val) {
     Status s;
     // get file number, offset and value size
     int vlogNum;
@@ -515,12 +516,12 @@ Status ExpDBImpl::readValue(string &valueInfo, string *val) {
     return s;
 }
 
-void ExpDBImpl::parseValueInfo(const string &valueInfo, int &vlogNum, size_t &offset, size_t &valueSize) {
+void ExpDBImpl::parseValueInfo(const std::string &valueInfo, int &vlogNum, size_t &offset, size_t &valueSize) {
     size_t offsetSep = valueInfo.find('$');
     size_t sizeSep = valueInfo.rfind('$');
-    string vlogNumStr = valueInfo.substr(0, offsetSep);
-    string offsetStr = valueInfo.substr(offsetSep + 1, sizeSep - offsetSep - 1);
-    string valueSizeStr = valueInfo.substr(sizeSep + 1, valueInfo.size() - sizeSep - 1);
+    std::string vlogNumStr = valueInfo.substr(0, offsetSep);
+    std::string offsetStr = valueInfo.substr(offsetSep + 1, sizeSep - offsetSep - 1);
+    std::string valueSizeStr = valueInfo.substr(sizeSep + 1, valueInfo.size() - sizeSep - 1);
     vlogNum = std::stoi(vlogNumStr);
     offset = std::stoul(offsetStr);
     valueSize = std::stoul(valueSizeStr);

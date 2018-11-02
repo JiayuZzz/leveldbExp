@@ -17,11 +17,11 @@ namespace leveldb {
         VlogDBImpl(VlogOptions &options, const std::string &dbname, const std::string &vlogname, Status &s);
 
         // Implementations of the VlogDB interface
-        virtual Status Put(const WriteOptions writeOptions, const string &key, const string &val);
-        virtual Status Get(const ReadOptions readOptions, const string &key, string *val);
-        virtual Status Delete(const WriteOptions writeOptions, const string &key);
-        virtual size_t Scan(const ReadOptions readOptions, const string &start, size_t num, std::vector<string> &keys,
-                            std::vector<string> &values);
+        virtual Status Put(const WriteOptions writeOptions, const std::string &key, const std::string &val);
+        virtual Status Get(const ReadOptions readOptions, const std::string &key, std::string *val);
+        virtual Status Delete(const WriteOptions writeOptions, const std::string &key);
+        virtual size_t Scan(const ReadOptions readOptions, const std::string &start, size_t num, std::vector<std::string> &keys,
+                            std::vector<std::string> &values);
         virtual bool GetProperty(const Slice& property, std::string* value);
 
         ~VlogDBImpl();
@@ -29,11 +29,21 @@ namespace leveldb {
     private:
         DB* indexDB_; //LSM-Tree to store key-valueAddr
         ThreadPool* threadPool_;
-        FILE* vlog_;
+        std::string vlogDir_;
+        int headVLogNum_;
+        int lastVlogNum_;
         VlogOptions options_;
+        std::vector<FILE*> openedVlog_;
 
         // read value from vlog according to valueInfo read from index tree
-        Status readValue(string &valueInfo, string *val);
+        Status readValue(std::string &valueInfo, std::string *val);
+        FILE* OpenVlog(int vlogNum);
+        size_t VlogSize(int vlogNum);
+        void parseValueInfo(const std::string &valueInfo, int &vlogNum, size_t &offset, size_t &valueSize);
+        void Recover();
+        Status DeleteVlog(int vlogNum);
+        // gc at least size space
+        Status GarbageCollect(size_t size);
     };
 }
 

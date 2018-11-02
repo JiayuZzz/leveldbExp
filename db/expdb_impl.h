@@ -13,7 +13,6 @@
 #include <string>
 #include <port/port.h>
 #include "db/dbformat.h"
-#include <map>
 #include <set>
 
 
@@ -26,17 +25,17 @@ namespace leveldb {
         ExpDBImpl(ExpOptions options, const std::string &dbname, const std::string &vlogdir, Status& s);
         ~ExpDBImpl();
         // Implementations of the VlogDB interface
-        virtual Status Put(const WriteOptions writeOptions, const string &key, const string &val);
+        virtual Status Put(const WriteOptions writeOptions, const std::string &key, const std::string &val);
 
         //write batch to memtable
         virtual Status Write(const leveldb::WriteOptions &options, leveldb::WriteBatch *updates);
 
-        virtual Status Get(const ReadOptions readOptions, const string &key, string *val);
+        virtual Status Get(const ReadOptions readOptions, const std::string &key, std::string *val);
 
-        virtual Status Delete(const WriteOptions writeOptions, const string &key);
+        virtual Status Delete(const WriteOptions writeOptions, const std::string &key);
 
-        virtual size_t Scan(const ReadOptions readOptions, const string &start, size_t num, std::vector<string> &keys,
-                            std::vector<string> &values);
+        virtual size_t Scan(const ReadOptions readOptions, const std::string &start, size_t num, std::vector<std::string> &keys,
+                            std::vector<std::string> &values);
 
         virtual bool GetProperty(const Slice &property, std::string *value);
 
@@ -73,10 +72,10 @@ namespace leveldb {
         static void BGWork(void *db);
         void BackgroundCall();
         Status WriteVlog(MemTable* mem);
-        Status readValue(string &valueInfo, string *val);
+        Status readValue(std::string &valueInfo, std::string *val);
         Status ReadValuesForScan(const std::vector<std::string> &valueInfos, int begin, int end,
                                  std::vector<std::string>& vals);
-        void parseValueInfo(const string &valueInfo, int& vlogNum, size_t& offset, size_t& valueSize);
+        void parseValueInfo(const std::string &valueInfo, int& vlogNum, size_t& offset, size_t& valueSize);
         void Recover();
     };
 }
