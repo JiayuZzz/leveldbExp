@@ -35,6 +35,9 @@
 #include "util/logging.h"
 #include "util/mutexlock.h"
 #include "leveldb/statistics.h"
+#include <map>
+
+leveldb::Gctable* gctable_ = new leveldb::Gctable();
 
 namespace leveldb {
 
@@ -923,6 +926,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   bool has_current_user_key = false;
   SequenceNumber last_sequence_for_key = kMaxSequenceNumber;
   uint64_t startIter = NowMiros();
+  std::map<int, std::pair<int,std::vector<int>>> droped;
   for (; input->Valid() && !shutting_down_.Acquire_Load(); ) {
     // Prioritize immutable compaction work
     if (has_imm_.NoBarrier_Load() != nullptr) {
@@ -966,6 +970,44 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
       if (last_sequence_for_key <= compact->smallest_snapshot) {
         // Hidden by an newer entry for same user key
         drop = true;    // (A)
+        uint64_t starBuildGc = NowMiros();
+        std::string key = input->key().ToString();
+        key = key.substr(0,key.size()-8);
+        if(key!="nextVlogNum"&&key!="lastSequence") {
+            std::string val = input->value().ToString();
+            int vlogNum;
+            int offset;
+            int vSize;
+//            std::cerr<<"key"<<input->key().ToString()<<"aaaaaa \n"<<val<<"\naaaaaa\n"<<std::endl;
+            sscanf(val.c_str(), "%d$%d$%d", &vlogNum, &offset, &vSize);
+//            if (vSize < 0 || vSize > 300000000) {
+//                std::cerr << "\n\n\n\nvsize: " << vSize << std::endl;
+//                std::cerr << "<$$$$$$$$$$$$$$$0$$$$$$$$$$$$$\n";
+//                exit(-1);
+//            }
+            auto iter = droped.find(vlogNum);
+            if (iter != droped.end()) {
+                (*iter).second.first += (vSize + input->key().size());
+//                std::cerr << "file" << (*iter).first << "%%%%" << (*iter).second.first << "+"
+//                          << (vSize + input->key().size()) << std::endl;
+//                if ((*iter).second.first < 0 || (*iter).second.first > 300000000) {
+//                    std::cerr << "<###############0###############\n";
+//                    exit(-1);
+//                }
+                (*iter).second.second.push_back(offset);
+            } else {
+                std::vector<int> tmp(1, offset);
+                std::pair<int, std::vector<int>> tmpP;
+                droped.insert(std::pair<int, std::pair<int, std::vector<int>>>(vlogNum, tmpP));
+                droped[vlogNum].first = vSize;
+                droped[vlogNum].second = tmp;
+//                if (droped[vlogNum].first < 0 || droped[vlogNum].first > 300000000) {
+//                    std::cerr << "vsize: " << vSize << std::endl;
+//                    std::cerr << "<$$$$$$$$$$$$$$$0$$$$$$$$$$$$$\n";
+//                }
+            }
+        }
+        STATS::Time(STATS::GetInstance()->gcTable,starBuildGc,NowMiros());
       } else if (ikey.type == kTypeDeletion &&
                  ikey.sequence <= compact->smallest_snapshot &&
                  compact->compaction->IsBaseLevelForKey(ikey.user_key)) {
@@ -1018,6 +1060,11 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
     }
 
     input->Next();
+  }
+  for(auto & drop : droped) {
+//    std::cerr<<droped.size()<<std::endl;
+//    std::cout<<drop.second.first<<std::endl;
+    gctable_->Add(drop.first,drop.second.first,drop.second.second);
   }
   STATS::Time(STATS::GetInstance()->compactionIterTime,startIter,NowMiros()+imm_micros);
 

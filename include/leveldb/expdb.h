@@ -15,6 +15,7 @@ namespace leveldb {
         int numThreads = 32;
         int numOpenfile = 50000;
         size_t vlogMemSize = 4<<24;
+        size_t gcAfterExe = 0;
     };
 
     class ExpDB {

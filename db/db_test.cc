@@ -2065,6 +2065,8 @@ class ModelDB: public DB {
   virtual bool GetProperty(const Slice& property, std::string* value) {
     return false;
   }
+
+
   virtual void GetApproximateSizes(const Range* r, int n, uint64_t* sizes) {
     for (int i = 0; i < n; i++) {
       sizes[i] = 0;

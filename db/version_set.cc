@@ -45,7 +45,8 @@ static double MaxBytesForLevel(const Options* options, int level) {
   // Result for both level-0 and level-1
   double result = 10. * 1048576.0;
   while (level > 1) {
-    result *= 10;
+//    result *= 10;
+    result *= options->exp_ops.sizeRatio;
     level--;
   }
   return result;

@@ -161,14 +161,13 @@ namespace leveldb {
     }
 
     bool VlogDBImpl::GetProperty(const Slice &property, std::string *value) {
+        if(options_.gcAfterExe>0){
+            GarbageCollect(options_.gcAfterExe);
+        }
         return indexDB_->GetProperty(property, value);
     };
 
     VlogDBImpl::~VlogDBImpl() {
-        if(options_.gcAfterExe>0){
-            GarbageCollect(options_.gcAfterExe);
-        }
-        printf("Vlog gc time: %.2f s\n",(double)STATS::GetInstance()->gcTime/1000000);
         for(FILE* f:openedVlog_){
             if(f) fclose(f);
         }
@@ -206,16 +205,18 @@ namespace leveldb {
         size_t offset;
         std::string valueInfo;
         Status s;
+        std::cerr<<"gc"<<size<<std::endl;
         while(headVLogNum_!=lastVlogNum_){
             FILE* gcVlog = OpenVlog(headVLogNum_);
+            fseek(gcVlog,0,SEEK_SET);
             while(2==fscanf(gcVlog,"%d$%d$",&keySize,&valueSize)){
                 offset = ftell(gcVlog)+keySize;     // value offset
                 char key[keySize];
                 fread(key,keySize,1,gcVlog);
+                uint64_t startGet = NowMiros();
                 auto s = indexDB_->Get(leveldb::ReadOptions(),key,&valueInfo);
-
+                STATS::Time(STATS::GetInstance()->gcReadLsm, startGet, NowMiros());
                 if(!s.ok()) {
-                    std::cerr<<"invalid\n";
                     fseek(gcVlog,valueSize,SEEK_CUR);
                     done+=(keySize+valueSize);
                     continue;
@@ -229,7 +230,9 @@ namespace leveldb {
                     // write back
                     char value[valueSize];
                     fread(value,valueSize,1,gcVlog);
+                    uint64_t startPut = NowMiros();
                     Put(leveldb::WriteOptions(),key,value);
+                    STATS::Time(STATS::GetInstance()->gcPutBack,startPut,NowMiros());
                 } else {
                     // drop
                     fseek(gcVlog,valueSize,SEEK_CUR);
@@ -243,6 +246,7 @@ namespace leveldb {
             if(done>size) break;
         }
         STATS::Time(STATS::GetInstance()->gcTime,startMicros,NowMiros());
+        std::cerr<<"done "<<done<<std::endl;
         return s;
     }
 

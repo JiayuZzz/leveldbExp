@@ -33,8 +33,9 @@ struct LEVELDB_EXPORT Options {
     struct ExpOps {
         bool seekCompaction;
         bool directIO;
+        int sizeRatio;       // leveli+1 / leveli
 
-        ExpOps():seekCompaction(true){}
+        ExpOps():seekCompaction(true), directIO(false), sizeRatio(10){}
     };
   // -------------------
   // Parameters that affect behavior

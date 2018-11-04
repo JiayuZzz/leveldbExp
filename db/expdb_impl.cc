@@ -9,6 +9,9 @@
 #include "db/memtable.h"
 #include "funcs.h"
 #include <fcntl.h>
+#include "gctable.h"
+
+extern leveldb::Gctable* gctable_;
 
 namespace leveldb {
     struct ExpDBImpl::Writer {
@@ -340,6 +343,9 @@ namespace leveldb {
 
 
 bool ExpDBImpl::GetProperty(const leveldb::Slice &property, std::string *value) {
+    if(options_.gcAfterExe>0){
+        GarbageCollect(options_.gcAfterExe);
+    }
         return indexDB_->GetProperty(property,value);
     }
 
@@ -458,7 +464,8 @@ Status ExpDBImpl::WriteVlog(MemTable *mem) {
         std::string key = iter->key().ToString();
         key = key.substr(0, key.size() - 8); //last 8 byte is sequence number
         std::string val = iter->value().ToString();
-        iter->Next();
+        iter->Next();\
+        /*
         // deduplicate same keys
         while(iter->Valid()){
             std::string key1 = iter->key().ToString();
@@ -470,6 +477,7 @@ Status ExpDBImpl::WriteVlog(MemTable *mem) {
                 break;
             }
         }
+        */
         size_t keySize = key.size();
         size_t valueSize = val.size();
         std::string keySizeStr = std::to_string(keySize);
@@ -526,4 +534,50 @@ void ExpDBImpl::parseValueInfo(const std::string &valueInfo, int &vlogNum, size_
     offset = std::stoul(offsetStr);
     valueSize = std::stoul(valueSizeStr);
 }
+
+    Status ExpDBImpl::GarbageCollect(size_t size) {
+        uint64_t startMicros = NowMiros();
+        size_t done = 0;
+        int keySize;
+        int valueSize;
+        size_t offset;
+        std::string valueInfo;
+        Status s;
+        while (!gctable_->IsEmpty()) {
+            // garbage stats of vlog which to be gc
+            Gcnode *n = gctable_->GetLast();
+            gctable_->DropLast();
+            done += n->gSize;
+            std::cerr<<"gc "<<n->gSize<<" "<<n->vlogNum<<"\n";
+            FILE *gcVlog = OpenVlog(n->vlogNum);
+            fseek(gcVlog,0,SEEK_SET);
+            auto iter = n->offsets.begin();
+            while (2 == fscanf(gcVlog, "%d$%d$", &keySize, &valueSize)) {
+                offset = ftell(gcVlog) + keySize;
+                if (iter==n->offsets.end()||offset != (*iter)) {
+                    //valid, write back
+                    char key[keySize];
+                    fread(key, keySize, 1, gcVlog);
+                    char value[valueSize];
+                    fread(value, valueSize, 1, gcVlog);
+                    uint64_t startPut = NowMiros();
+                    Put(leveldb::WriteOptions(), key, value);
+                    STATS::Time(STATS::GetInstance()->gcPutBack,startPut,NowMiros());
+                } else {
+                    // drop
+                    fseek(gcVlog, valueSize + keySize, SEEK_CUR);
+                    iter++;
+                }
+            }
+            DeleteVlog(n->vlogNum);
+            if(done>size) break;
+        }
+        STATS::Time(STATS::GetInstance()->gcTime,startMicros,NowMiros());
+        return s;
+    }
+
+    Status ExpDBImpl::DeleteVlog(int vlogNum) {
+        std::string filename = vlogDir_ + "/" + std::to_string(vlogNum);
+        return remove(filename.c_str())==0?Status():Status().IOError("delete vlog error\n");
+    }
 }
