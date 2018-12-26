@@ -39,6 +39,7 @@ namespace leveldb {
         uint64_t gcTable;
         uint64_t gcPutBack;
         uint64_t gcReadLsm;
+        uint64_t gcWritebackBytes;
 
         static void TimeAndCount(statType &stat, uint64_t start, uint64_t end) {
             stat.first++;
@@ -47,6 +48,10 @@ namespace leveldb {
 
         static void Time(uint64_t &stat, uint64_t start, uint64_t end) {
             stat += (end - start);
+        }
+
+        static void Add(uint64_t &stat, uint64_t n) {
+            stat += n;
         }
 
         void printAll() {
@@ -94,13 +99,14 @@ namespace leveldb {
                    readTime / readCnt);
             printf("Total vlogdb scan time:%.2f s, count: %u, scan latency: %.2f us\n", scanTime / 1000000, scanCnt,
                    scanTime / scanCnt);
-            printf("Vlog scan LSM-Tree iter time: %.2f s\n",iterTime / 1000000);
-            printf("Assign vlog thread time: %.2f s\n",assign/1000000);
+            printf("Vlog scan LSM-Tree iter time: %.2f s\n", iterTime / 1000000);
+            printf("Assign vlog thread time: %.2f s\n", assign / 1000000);
             printf("Wait vlog scan threads finish time: %.2f s\n", (double) waitScanThreadsFinish / 1000000);
-            printf("Build gc table time: %.2f\n",gctable/1000000);
-            printf("Vlog gc time: %.2f s\n",(double)STATS::GetInstance()->gcTime/1000000);
-            printf("Read LSM time during gc: %.2f\n",(double)STATS::GetInstance()->gcReadLsm/1000000);
-            printf("Put back time during gc: %.2f\n",(double)STATS::GetInstance()->gcPutBack/1000000);
+            printf("Build gc table time: %.2f\n", gctable / 1000000);
+            printf("Vlog gc time: %.2f s\n", (double) STATS::GetInstance()->gcTime / 1000000);
+            printf("Read LSM time during gc: %.2f\n", (double) STATS::GetInstance()->gcReadLsm / 1000000);
+            printf("Put back to lsm time during gc: %.2f\n", (double) STATS::GetInstance()->gcPutBack / 1000000);
+            printf("Write back to vlog bytes during gc: %lu\n", gcWritebackBytes);
         }
 
 

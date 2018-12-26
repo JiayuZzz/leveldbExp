@@ -11,7 +11,7 @@
 #include <fcntl.h>
 #include "gctable.h"
 
-extern leveldb::Gctable* gctable_;
+extern leveldb::Gctable *gctable_;
 
 namespace leveldb {
     struct ExpDBImpl::Writer {
@@ -37,7 +37,8 @@ namespace leveldb {
     ExpDBImpl::ExpDBImpl(ExpOptions raw_options, const std::string &dbname, const std::string &vlogdir, Status &s)
             : options_(raw_options), vlogDir_(vlogdir), env_(raw_options.env),
               internal_comparator_(raw_options.comparator), lastSequence_(0),
-              background_work_finished_signal_(&mutex_),numVisited(0),background_compaction_scheduled_(false),tmp_batch_(new WriteBatch) {
+              background_work_finished_signal_(&mutex_), numVisited(0), background_compaction_scheduled_(false),
+              tmp_batch_(new WriteBatch) {
         nextVlogNum_ = 0;
         visited = std::set<int>();
         openedVlog_ = std::vector<FILE *>(options_.numOpenfile);
@@ -57,9 +58,9 @@ namespace leveldb {
 
     ExpDBImpl::~ExpDBImpl() {
         uint32_t numScan = STATS::GetInstance()->scanVlogStat.first;
-        if(options_.numThreads==1&&numScan>0)
-        std::cerr<<"######scan read "<<numVisited/numScan<<" vlogfiles in average#######\n";
-        indexDB_->Put(leveldb::WriteOptions(),"lastSequence",std::to_string(lastSequence_));
+        if (options_.numThreads == 1 && numScan > 0)
+            std::cerr << "######scan read " << numVisited / numScan << " vlogfiles in average#######\n";
+        indexDB_->Put(leveldb::WriteOptions(), "lastSequence", std::to_string(lastSequence_));
         mutex_.Lock();
         while (background_compaction_scheduled_) {
             background_work_finished_signal_.Wait();
@@ -77,12 +78,12 @@ namespace leveldb {
     void ExpDBImpl::Recover() {
         std::string nextVlogNumStr, lastSequenceStr;
         //restore next vlognumber and lastsequence
-        indexDB_->Get(leveldb::ReadOptions(),"nextVlogNum",&nextVlogNumStr);
-        indexDB_->Get(leveldb::ReadOptions(),"lastSequence",&lastSequenceStr);
-        if(nextVlogNumStr!="") nextVlogNum_ = std::stoi(nextVlogNumStr);
-        if(lastSequenceStr!="") lastSequence_ = std::stoul(lastSequenceStr);
-        std::cerr<<"next vlog num:"<<nextVlogNum_<<std::endl;
-        std::cerr<<"last sequence:"<<lastSequence_<<std::endl;
+        indexDB_->Get(leveldb::ReadOptions(), "nextVlogNum", &nextVlogNumStr);
+        indexDB_->Get(leveldb::ReadOptions(), "lastSequence", &lastSequenceStr);
+        if (nextVlogNumStr != "") nextVlogNum_ = std::stoi(nextVlogNumStr);
+        if (lastSequenceStr != "") lastSequence_ = std::stoul(lastSequenceStr);
+        std::cerr << "next vlog num:" << nextVlogNum_ << std::endl;
+        std::cerr << "last sequence:" << lastSequence_ << std::endl;
     }
 
     Status ExpDBImpl::Write(const leveldb::WriteOptions &options, leveldb::WriteBatch *my_batch) {
@@ -108,8 +109,8 @@ namespace leveldb {
         Writer *last_writer = &w;
         if (status.ok() && my_batch != nullptr) {
             WriteBatch *updates = BuildBatchGroup(&last_writer);
-            WriteBatchInternal::SetSequence(updates, lastSequence+1);
-            lastSequence+=WriteBatchInternal::Count(updates);
+            WriteBatchInternal::SetSequence(updates, lastSequence + 1);
+            lastSequence += WriteBatchInternal::Count(updates);
             {
                 mutex_.Unlock();
                 status = WriteBatchInternal::InsertInto(updates, mem_);
@@ -118,7 +119,7 @@ namespace leveldb {
 //                std::cerr << "mem done lock\n";
             }
             if (updates == tmp_batch_) tmp_batch_->Clear();
-            if(lastSequence>lastSequence_)
+            if (lastSequence > lastSequence_)
                 lastSequence_ = lastSequence;
 //            std::cerr<<"done write mem\n";
         }
@@ -263,7 +264,7 @@ namespace leveldb {
     size_t ExpDBImpl::Scan(const leveldb::ReadOptions readOptions, const std::string &start, size_t num,
                            std::vector<std::string> &keys, std::vector<std::string> &values) {
         uint64_t startMicros = NowMiros();
-        size_t i = 0,j=0;
+        size_t i = 0, j = 0;
         if (keys.size() < num)
             keys.resize(num);
         if (values.size() < num)
@@ -272,7 +273,8 @@ namespace leveldb {
 
         auto iter = indexDB_->NewIterator(readOptions);
         iter->Seek(start);
-        int sep = num/(options_.numThreads*4);
+//        int sep = num/(options_.numThreads*16);
+        int sep = 8;
         if (iter->Valid()) {
             // for thread join
             std::vector<std::future<Status>> retStatus;
@@ -282,11 +284,11 @@ namespace leveldb {
                 keys[i] = iter->key().ToString();
                 valueInfos[i] = iter->value().ToString();
 //                std::cerr<<"add task\n";
-                if((i%(sep)==0&&i!=0)||i==num-1) {
+                if ((i % (sep) == 0 && i != 0) || i == num - 1) {
                     uint64_t assignStart = NowMiros();
                     retStatus.emplace_back(
                             threadPool_->addTask(
-                            &ExpDBImpl::ReadValuesForScan, this, std::ref(valueInfos), j, i, std::ref(values)));
+                                    &ExpDBImpl::ReadValuesForScan, this, std::ref(valueInfos), j, i, std::ref(values)));
                     STATS::Time(STATS::GetInstance()->assignThread, assignStart, NowMiros());
                     j = i;
                 }
@@ -294,177 +296,177 @@ namespace leveldb {
                 iter->Next();
                 if (!iter->Valid()) std::cerr << "not valid\n";
             }
-            delete(iter);
-            STATS::Time(STATS::GetInstance()->scanVlogIter,iterStart,NowMiros());
+            delete (iter);
+            STATS::Time(STATS::GetInstance()->scanVlogIter, iterStart, NowMiros());
             // wait for all threads to complete
             uint64_t wait = NowMiros();
-            for(auto &fs:retStatus) {
+            for (auto &fs:retStatus) {
                 try {
                     fs.wait();
                     // if no that many keys
-                } catch (const std::future_error &e){
+                } catch (const std::future_error &e) {
                     break;
                 }
             }
             STATS::Time(STATS::GetInstance()->waitScanThreadsFinish, wait, NowMiros());
 //            std::cerr<<"end scan\n";
         }
-        STATS::TimeAndCount(STATS::GetInstance()->scanVlogStat,startMicros,NowMiros());
+        STATS::TimeAndCount(STATS::GetInstance()->scanVlogStat, startMicros, NowMiros());
         numVisited += visited.size();
         visited.clear();
         return i;
     }
 
     Status ExpDBImpl::ReadValuesForScan(const std::vector<std::string> &valueInfos, int begin, int end,
-                                        std::vector<std::string>& vals) {
+                                        std::vector<std::string> &vals) {
         int vlogNum;
         size_t offset;
         size_t valueSize;
         Status s;
-        for(int i=begin;i<end;i++){
+        for (int i = begin; i < end; i++) {
             // get file number, offset and value size
             parseValueInfo(valueInfos[i], vlogNum, offset, valueSize);
 
             char value[valueSize];
             FILE *f = OpenVlog(vlogNum);
-            if(options_.numThreads==1)
-                if(visited.find(vlogNum)==visited.end()) visited.insert(vlogNum);
-            readahead(fileno(f),(offset/4096)*4096,4096);
+            if (options_.numThreads == 1)
+                if (visited.find(vlogNum) == visited.end()) visited.insert(vlogNum);
+            readahead(fileno(f), (offset / 8192) * 8192, 8192);  // each file only readahead once
+
             size_t got = pread(fileno(f), value, valueSize, offset);
             if (got != valueSize) {
                 s.IOError("get value error\n");
                 std::cerr << "get value error" << std::endl;
             }
             vals[i].assign(value, valueSize);
-            if(!s.ok()) return s;
+            if (!s.ok()) return s;
+        }
+        return s;
+    }
+
+    bool ExpDBImpl::GetProperty(const leveldb::Slice &property, std::string *value) {
+        if (options_.gcAfterExe > 0) {
+            GarbageCollect(options_.gcAfterExe);
+        }
+        return indexDB_->GetProperty(property, value);
+    }
+
+    Status ExpDBImpl::Delete(const leveldb::WriteOptions writeOptions, const std::string &key) {
+        return indexDB_->Delete(writeOptions, key);
+    }
+
+
+    void ExpDBImpl::MaybeScheduleCompaction() {
+        mutex_.AssertHeld();
+        if (background_compaction_scheduled_) {
+            //Already scheduled
+        } else if (imm_ == nullptr) {
+            //nothing to do
+        } else {
+            background_compaction_scheduled_ = true;
+            threadPool_->addTask(&ExpDBImpl::CompactMemtable, this);
+//        env_->Schedule(&ExpDBImpl::BGWork,this);
+//        threadPool_->addTask(&ExpDBImpl::CompactMemtable, this);
+        }
+    }
+
+// not used
+    void ExpDBImpl::BGWork(void *db) {
+        reinterpret_cast<ExpDBImpl *>(db)->BackgroundCall();
+    }
+
+
+// not used
+    void ExpDBImpl::BackgroundCall() {
+//    std::cerr<<"backgroundcall\n";
+        MutexLock l(&mutex_);
+        assert(background_compaction_scheduled_);
+
+        if (imm_ != nullptr) {
+//        std::cerr<<"compactmem\n";
+            CompactMemtable();
+//        std::cerr<<"done compact\n";
+        }
+        background_work_finished_signal_.SignalAll();
+        background_compaction_scheduled_ = false;
+//    std::cerr<<"before schedule\n";
+        MaybeScheduleCompaction();
+//    std::cerr<<"end schedule\n";
+        background_work_finished_signal_.SignalAll();
+    }
+
+    Status ExpDBImpl::MakeRoomForWrite(bool force) {
+        mutex_.AssertHeld();
+        assert(!writers_.empty());
+        bool allow_delay = !force;
+        Status s;
+        while (true) {
+            if (!force && (mem_->ApproximateMemoryUsage() <= options_.vlogMemSize)) {
+                break;
+            } else if (imm_ != nullptr) {
+//            std::cerr << "wait background finish\n";
+                background_work_finished_signal_.Wait();
+//            std::cerr << "wait finish done\n";
+            } else {
+                imm_ = mem_;
+                has_imm_.Release_Store(imm_);
+                mem_ = new MemTable(internal_comparator_);
+                mem_->Ref();
+                force = false;
+                MaybeScheduleCompaction();
+            }
         }
         return s;
     }
 
 
-bool ExpDBImpl::GetProperty(const leveldb::Slice &property, std::string *value) {
-    if(options_.gcAfterExe>0){
-        GarbageCollect(options_.gcAfterExe);
-    }
-        return indexDB_->GetProperty(property,value);
-    }
-
-Status ExpDBImpl::Delete(const leveldb::WriteOptions writeOptions, const std::string &key) {
-    return indexDB_->Delete(writeOptions, key);
-}
-
-
-void ExpDBImpl::MaybeScheduleCompaction() {
-    mutex_.AssertHeld();
-    if (background_compaction_scheduled_) {
-        //Already scheduled
-    } else if (imm_ == nullptr) {
-        //nothing to do
-    } else {
-        background_compaction_scheduled_ = true;
-        threadPool_->addTask(&ExpDBImpl::CompactMemtable,this);
-//        env_->Schedule(&ExpDBImpl::BGWork,this);
-//        threadPool_->addTask(&ExpDBImpl::CompactMemtable, this);
-    }
-}
-
-// not used
-void ExpDBImpl::BGWork(void *db) {
-    reinterpret_cast<ExpDBImpl*>(db)->BackgroundCall();
-}
-
-
-// not used
-void ExpDBImpl::BackgroundCall() {
-//    std::cerr<<"backgroundcall\n";
-    MutexLock l(&mutex_);
-    assert(background_compaction_scheduled_);
-
-    if(imm_!=nullptr) {
-//        std::cerr<<"compactmem\n";
-        CompactMemtable();
-//        std::cerr<<"done compact\n";
-    }
-    background_work_finished_signal_.SignalAll();
-    background_compaction_scheduled_ = false;
-//    std::cerr<<"before schedule\n";
-    MaybeScheduleCompaction();
-//    std::cerr<<"end schedule\n";
-    background_work_finished_signal_.SignalAll();
-}
-
-Status ExpDBImpl::MakeRoomForWrite(bool force) {
-    mutex_.AssertHeld();
-    assert(!writers_.empty());
-    bool allow_delay = !force;
-    Status s;
-    while (true) {
-        if (!force && (mem_->ApproximateMemoryUsage() <= options_.vlogMemSize)) {
-            break;
-        } else if (imm_ != nullptr) {
-//            std::cerr << "wait background finish\n";
-            background_work_finished_signal_.Wait();
-//            std::cerr << "wait finish done\n";
-        } else {
-            imm_ = mem_;
-            has_imm_.Release_Store(imm_);
-            mem_ = new MemTable(internal_comparator_);
-            mem_->Ref();
-            force = false;
-            MaybeScheduleCompaction();
-        }
-    }
-    return s;
-}
-
-
-Status ExpDBImpl::CompactMemtable() {
-    mutex_.AssertHeld();
-    assert(imm_ != nullptr);
+    Status ExpDBImpl::CompactMemtable() {
+        mutex_.AssertHeld();
+        assert(imm_ != nullptr);
 //    std::cerr<<"begin write vlog\n";
-    Status s = WriteVlog(imm_);
+        Status s = WriteVlog(imm_);
 //    std::cerr<<"done write vlog\n";
-    if (s.ok()) {
-        imm_->Unref();
-        imm_ = nullptr;
-        has_imm_.Release_Store(nullptr);
-    } else {
-        std::cerr<<"write vlog error\n";
-        std::cerr<<s.ToString()<<std::endl;
-    }
-    background_compaction_scheduled_ = false;
-    background_work_finished_signal_.SignalAll();
-    return s;
-}
-
-Status ExpDBImpl::WriteVlog(MemTable *mem) {
-    Status s;
-    mutex_.AssertHeld();
-    Iterator *iter = mem->NewIterator();
-    mutex_.Unlock();
-    iter->SeekToFirst();
-    int vlogNum = nextVlogNum_;
-    FILE *f;
-    if (iter->Valid()) {
-        f = OpenVlog(vlogNum);
-        nextVlogNum_++;
-        // persist in lsm
-        indexDB_->Put(leveldb::WriteOptions(),"nextVlogNum",std::to_string(nextVlogNum_));
-    } else {
-        return s.NotFound("Invalid Mem Iterator");
+        if (s.ok()) {
+            imm_->Unref();
+            imm_ = nullptr;
+            has_imm_.Release_Store(nullptr);
+        } else {
+            std::cerr << "write vlog error\n";
+            std::cerr << s.ToString() << std::endl;
+        }
+        background_compaction_scheduled_ = false;
+        background_work_finished_signal_.SignalAll();
+        return s;
     }
 
-    /* write k-v to vlog file
-     * format: <key size, value size, key, value>
-    * use '$' to seperate offset and value size, key size and value size, value size and key
-    */
-    std::future<Status> ret;
-    while(iter->Valid()) {
-        // TODO: debug key sequence number
-        std::string key = iter->key().ToString();
-        key = key.substr(0, key.size() - 8); //last 8 byte is sequence number
-        std::string val = iter->value().ToString();
-        iter->Next();\
+    Status ExpDBImpl::WriteVlog(MemTable *mem) {
+        Status s;
+        mutex_.AssertHeld();
+        Iterator *iter = mem->NewIterator();
+        mutex_.Unlock();
+        iter->SeekToFirst();
+        int vlogNum = nextVlogNum_;
+        FILE *f;
+        if (iter->Valid()) {
+            f = OpenVlog(vlogNum);
+            nextVlogNum_++;
+            // persist in lsm
+            indexDB_->Put(leveldb::WriteOptions(), "nextVlogNum", std::to_string(nextVlogNum_));
+        } else {
+            return s.NotFound("Invalid Mem Iterator");
+        }
+
+        /* write k-v to vlog file
+         * format: <key size, value size, key, value>
+        * use '$' to seperate offset and value size, key size and value size, value size and key
+        */
+        std::future<Status> ret;
+        while (iter->Valid()) {
+            // TODO: debug key sequence number
+            std::string key = iter->key().ToString();
+            key = key.substr(0, key.size() - 8); //last 8 byte is sequence number
+            std::string val = iter->value().ToString();
+            iter->Next();\
         /*
         // deduplicate same keys
         while(iter->Valid()){
@@ -478,62 +480,64 @@ Status ExpDBImpl::WriteVlog(MemTable *mem) {
             }
         }
         */
-        size_t keySize = key.size();
-        size_t valueSize = val.size();
-        std::string keySizeStr = std::to_string(keySize);
-        std::string valueSizeStr = std::to_string(valueSize);
+            size_t keySize = key.size();
+            size_t valueSize = val.size();
+            std::string keySizeStr = std::to_string(keySize);
+            std::string valueSizeStr = std::to_string(valueSize);
 
-        std::string vlogStr = "";
-        appendStr(vlogStr,{keySizeStr,"$",valueSizeStr,"$",key,val}); // | key size | value size | key | value |
-        fwrite(vlogStr.c_str(), vlogStr.size(), 1, f);
-        size_t vlogOffset = ftell(f) - val.size();
-        std::string vlogOffsetStr = std::to_string(vlogOffset);
-        std::string indexStr = "";
-        appendStr(indexStr,{std::to_string(vlogNum),"$",vlogOffsetStr,"$",valueSizeStr});// |vlog file number|offset|size|
-         s = indexDB_->Put(WriteOptions(), key, indexStr);
-        if (!s.ok()) return s;
+            std::string vlogStr = "";
+            appendStr(vlogStr,
+                      {keySizeStr, "$", valueSizeStr, "$", key, val}); // | key size | value size | key | value |
+            fwrite(vlogStr.c_str(), vlogStr.size(), 1, f);
+            size_t vlogOffset = ftell(f) - val.size();
+            std::string vlogOffsetStr = std::to_string(vlogOffset);
+            std::string indexStr = "";
+            appendStr(indexStr, {std::to_string(vlogNum), "$", vlogOffsetStr, "$",
+                                 valueSizeStr});// |vlog file number|offset|size|
+            s = indexDB_->Put(WriteOptions(), key, indexStr);
+            if (!s.ok()) return s;
+        }
+        return s;
     }
-    return s;
-}
 
-FILE *ExpDBImpl::OpenVlog(int vlogNum) {
-    std::string filename = vlogDir_ + "/" + std::to_string(vlogNum);
-    assert(vlogNum <= options_.numOpenfile);
-    if (openedVlog_[vlogNum] == nullptr) {
-        openedVlog_[vlogNum] = fopen(filename.c_str(), "a+");
+    FILE *ExpDBImpl::OpenVlog(int vlogNum) {
+        std::string filename = vlogDir_ + "/" + std::to_string(vlogNum);
+        assert(vlogNum <= options_.numOpenfile);
+        if (openedVlog_[vlogNum] == nullptr) {
+            openedVlog_[vlogNum] = fopen(filename.c_str(), "a+");
+        }
+        return openedVlog_[vlogNum];
     }
-    return openedVlog_[vlogNum];
-}
 
-Status ExpDBImpl::readValue(std::string &valueInfo, std::string *val) {
-    Status s;
-    // get file number, offset and value size
-    int vlogNum;
-    size_t offset;
-    size_t valueSize;
-    parseValueInfo(valueInfo, vlogNum, offset, valueSize);
+    Status ExpDBImpl::readValue(std::string &valueInfo, std::string *val) {
+        Status s;
+        // get file number, offset and value size
+        int vlogNum;
+        size_t offset;
+        size_t valueSize;
+        parseValueInfo(valueInfo, vlogNum, offset, valueSize);
 
-    char value[valueSize];
-    FILE *f = OpenVlog(vlogNum);
-    size_t got = pread(fileno(f), value, valueSize, offset);
-    if (got != valueSize) {
-        s.IOError("get value error\n");
-        std::cerr << "get value error" << std::endl;
+        char value[valueSize];
+        FILE *f = OpenVlog(vlogNum);
+        size_t got = pread(fileno(f), value, valueSize, offset);
+        if (got != valueSize) {
+            s.IOError("get value error\n");
+            std::cerr << "get value error" << std::endl;
+        }
+        val->assign(value, valueSize);
+        return s;
     }
-    val->assign(value, valueSize);
-    return s;
-}
 
-void ExpDBImpl::parseValueInfo(const std::string &valueInfo, int &vlogNum, size_t &offset, size_t &valueSize) {
-    size_t offsetSep = valueInfo.find('$');
-    size_t sizeSep = valueInfo.rfind('$');
-    std::string vlogNumStr = valueInfo.substr(0, offsetSep);
-    std::string offsetStr = valueInfo.substr(offsetSep + 1, sizeSep - offsetSep - 1);
-    std::string valueSizeStr = valueInfo.substr(sizeSep + 1, valueInfo.size() - sizeSep - 1);
-    vlogNum = std::stoi(vlogNumStr);
-    offset = std::stoul(offsetStr);
-    valueSize = std::stoul(valueSizeStr);
-}
+    void ExpDBImpl::parseValueInfo(const std::string &valueInfo, int &vlogNum, size_t &offset, size_t &valueSize) {
+        size_t offsetSep = valueInfo.find('$');
+        size_t sizeSep = valueInfo.rfind('$');
+        std::string vlogNumStr = valueInfo.substr(0, offsetSep);
+        std::string offsetStr = valueInfo.substr(offsetSep + 1, sizeSep - offsetSep - 1);
+        std::string valueSizeStr = valueInfo.substr(sizeSep + 1, valueInfo.size() - sizeSep - 1);
+        vlogNum = std::stoi(vlogNumStr);
+        offset = std::stoul(offsetStr);
+        valueSize = std::stoul(valueSizeStr);
+    }
 
     Status ExpDBImpl::GarbageCollect(size_t size) {
         uint64_t startMicros = NowMiros();
@@ -548,13 +552,13 @@ void ExpDBImpl::parseValueInfo(const std::string &valueInfo, int &vlogNum, size_
             Gcnode *n = gctable_->GetLast();
             gctable_->DropLast();
             done += n->gSize;
-            std::cerr<<"gc "<<n->gSize<<" "<<n->vlogNum<<"\n";
+            std::cerr << "gc " << n->gSize << " " << n->vlogNum << "\n";
             FILE *gcVlog = OpenVlog(n->vlogNum);
-            fseek(gcVlog,0,SEEK_SET);
+            fseek(gcVlog, 0, SEEK_SET);
             auto iter = n->offsets.begin();
             while (2 == fscanf(gcVlog, "%d$%d$", &keySize, &valueSize)) {
                 offset = ftell(gcVlog) + keySize;
-                if (iter==n->offsets.end()||offset != (*iter)) {
+                if (iter == n->offsets.end() || offset != (*iter)) {
                     //valid, write back
                     char key[keySize];
                     fread(key, keySize, 1, gcVlog);
@@ -562,7 +566,8 @@ void ExpDBImpl::parseValueInfo(const std::string &valueInfo, int &vlogNum, size_
                     fread(value, valueSize, 1, gcVlog);
                     uint64_t startPut = NowMiros();
                     Put(leveldb::WriteOptions(), key, value);
-                    STATS::Time(STATS::GetInstance()->gcPutBack,startPut,NowMiros());
+                    STATS::Time(STATS::GetInstance()->gcPutBack, startPut, NowMiros());
+                    STATS::Add(STATS::GetInstance()->gcWritebackBytes, valueSize);
                 } else {
                     // drop
                     fseek(gcVlog, valueSize + keySize, SEEK_CUR);
@@ -570,14 +575,14 @@ void ExpDBImpl::parseValueInfo(const std::string &valueInfo, int &vlogNum, size_
                 }
             }
             DeleteVlog(n->vlogNum);
-            if(done>size) break;
+            if (done > size) break;
         }
-        STATS::Time(STATS::GetInstance()->gcTime,startMicros,NowMiros());
+        STATS::Time(STATS::GetInstance()->gcTime, startMicros, NowMiros());
         return s;
     }
 
     Status ExpDBImpl::DeleteVlog(int vlogNum) {
         std::string filename = vlogDir_ + "/" + std::to_string(vlogNum);
-        return remove(filename.c_str())==0?Status():Status().IOError("delete vlog error\n");
+        return remove(filename.c_str()) == 0 ? Status() : Status().IOError("delete vlog error\n");
     }
 }

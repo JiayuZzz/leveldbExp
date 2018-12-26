@@ -7,6 +7,8 @@
 #include "funcs.h"
 #include <sys/stat.h>
 
+FILE *offsetsFile = fopen("./offsets", "w");
+
 namespace leveldb {
 
     /* dbname is index lsm-tree, vlogname is vlog filename */
@@ -20,7 +22,8 @@ namespace leveldb {
     VlogDB::~VlogDB() {}
 
     VlogDBImpl::VlogDBImpl(leveldb::VlogOptions &options, const std::string &dbname, const std::string &vlogDir,
-                           leveldb::Status &s) : options_(options),vlogDir_(vlogDir),lastVlogNum_(0),headVLogNum_(0) {
+                           leveldb::Status &s) : options_(options), vlogDir_(vlogDir), lastVlogNum_(0),
+                                                 headVLogNum_(0) {
         threadPool_ = new ThreadPool(options_.numThreads);
         openedVlog_ = std::vector<FILE *>(options_.numOpenfile);
         s = DB::Open(options, dbname, &indexDB_);
@@ -29,9 +32,12 @@ namespace leveldb {
             return;
         }
         if (access(vlogDir_.c_str(), F_OK) != 0 && options_.create_if_missing) {
-            mkdir(vlogDir.c_str(),S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
+            mkdir(vlogDir.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
         }
         Recover();
+        if (options_.gcAfterExe > 0) {
+            threadPool_->addTask(&VlogDBImpl::GarbageCollect, this, options_.gcAfterExe);
+        }
     }
 
     FILE *VlogDBImpl::OpenVlog(int vlogNum) {
@@ -55,19 +61,19 @@ namespace leveldb {
         std::string valueSizeStr = std::to_string(valueSize);
 
         std::string vlogStr = "";
-        appendStr(vlogStr,{keySizeStr,"$",valueSizeStr,"$",key,val}); // | key size | value size | key | value |
-        FILE* vlog = OpenVlog(lastVlogNum_);
+        appendStr(vlogStr, {keySizeStr, "$", valueSizeStr, "$", key, val}); // | key size | value size | key | value |
+        FILE *vlog = OpenVlog(lastVlogNum_);
         fwrite(vlogStr.c_str(), vlogStr.size(), 1, vlog);
 
         long vlogOffset = ftell(vlog) - val.size();
         std::string vlogOffsetStr = std::to_string(vlogOffset);
         std::string indexStr = "";
-        appendStr(indexStr,{std::to_string(lastVlogNum_),"$",vlogOffsetStr,"$",valueSizeStr});
+        appendStr(indexStr, {std::to_string(lastVlogNum_), "$", vlogOffsetStr, "$", valueSizeStr});
         Status s = indexDB_->Put(writeOptions, key, indexStr);
         // save tail
-        if(ftell(vlog)>options_.vlogSize) {
+        if (ftell(vlog) > options_.vlogSize) {
             lastVlogNum_++;
-            indexDB_->Put(writeOptions, "lastVlogNum",std::to_string(lastVlogNum_));
+            indexDB_->Put(writeOptions, "lastVlogNum", std::to_string(lastVlogNum_));
         }
         STATS::TimeAndCount(STATS::GetInstance()->writeVlogStat, startMicro, NowMiros());
         return s;
@@ -120,19 +126,19 @@ namespace leveldb {
                                         this,
                                         std::ref(valueInfos[i]),
                                         &values[i]);
-            STATS::Time(STATS::GetInstance()->assignThread,assignTask,NowMiros());
+            STATS::Time(STATS::GetInstance()->assignThread, assignTask, NowMiros());
             iter->Next();
             if (!iter->Valid()) std::cerr << "not valid\n";
         }
-        delete(iter);
-        STATS::Time(STATS::GetInstance()->scanVlogIter,iterStart,NowMiros());
+        delete (iter);
+        STATS::Time(STATS::GetInstance()->scanVlogIter, iterStart, NowMiros());
         // wait for all threads to complete
         uint64_t wait = NowMiros();
         for (auto &fs:s) {
             try {
                 fs.wait();
-            // if no that many keys
-            } catch (const std::future_error &e){
+                // if no that many keys
+            } catch (const std::future_error &e) {
                 break;
             }
         }
@@ -148,9 +154,10 @@ namespace leveldb {
         size_t offset;
         size_t valueSize;
         parseValueInfo(valueInfo, vlogNum, offset, valueSize);
+
         char value[valueSize];
         //read value from vlog
-        FILE* vlog = OpenVlog(vlogNum);
+        FILE *vlog = OpenVlog(vlogNum);
         size_t got = pread(fileno(vlog), value, valueSize, offset);
         if (got != valueSize) {
             s.IOError("get value error\n");
@@ -161,15 +168,15 @@ namespace leveldb {
     }
 
     bool VlogDBImpl::GetProperty(const Slice &property, std::string *value) {
-        if(options_.gcAfterExe>0){
+        if (options_.gcAfterExe > 0) {
             GarbageCollect(options_.gcAfterExe);
         }
         return indexDB_->GetProperty(property, value);
     };
 
     VlogDBImpl::~VlogDBImpl() {
-        for(FILE* f:openedVlog_){
-            if(f) fclose(f);
+        for (FILE *f:openedVlog_) {
+            if (f) fclose(f);
         }
         delete indexDB_;
         delete threadPool_;
@@ -181,6 +188,8 @@ namespace leveldb {
         std::string vlogNumStr = valueInfo.substr(0, offsetSep);
         std::string offsetStr = valueInfo.substr(offsetSep + 1, sizeSep - offsetSep - 1);
         std::string valueSizeStr = valueInfo.substr(sizeSep + 1, valueInfo.size() - sizeSep - 1);
+        //TODO delete this line
+        if (options_.numThreads == 1) fwrite((offsetStr + ",").c_str(), offsetStr.size() + 1, 1, offsetsFile);
         vlogNum = std::stoi(vlogNumStr);
         offset = std::stoul(offsetStr);
         valueSize = std::stoul(valueSizeStr);
@@ -189,12 +198,12 @@ namespace leveldb {
     void VlogDBImpl::Recover() {
         std::string lastVlogNumStr, headVlogNumStr;
         //restore next vlognumber and lastsequence
-        indexDB_->Get(leveldb::ReadOptions(),"lastVlogNum",&lastVlogNumStr);
-        indexDB_->Get(leveldb::ReadOptions(),"headVlogNum",&headVlogNumStr);
-        if(lastVlogNumStr!="") lastVlogNum_ = std::stoi(lastVlogNumStr);
-        if(headVlogNumStr!="") headVLogNum_ = std::stoi(headVlogNumStr);
-        std::cerr<<"last vlog num:"<<lastVlogNum_<<std::endl;
-        std::cerr<<"head vlog num:"<<headVLogNum_<<std::endl;
+        indexDB_->Get(leveldb::ReadOptions(), "lastVlogNum", &lastVlogNumStr);
+        indexDB_->Get(leveldb::ReadOptions(), "headVlogNum", &headVlogNumStr);
+        if (lastVlogNumStr != "") lastVlogNum_ = std::stoi(lastVlogNumStr);
+        if (headVlogNumStr != "") headVLogNum_ = std::stoi(headVlogNumStr);
+        std::cerr << "last vlog num:" << lastVlogNum_ << std::endl;
+        std::cerr << "head vlog num:" << headVLogNum_ << std::endl;
     }
 
     Status VlogDBImpl::GarbageCollect(size_t size) {
@@ -205,53 +214,54 @@ namespace leveldb {
         size_t offset;
         std::string valueInfo;
         Status s;
-        std::cerr<<"gc"<<size<<std::endl;
-        while(headVLogNum_!=lastVlogNum_){
-            FILE* gcVlog = OpenVlog(headVLogNum_);
-            fseek(gcVlog,0,SEEK_SET);
-            while(2==fscanf(gcVlog,"%d$%d$",&keySize,&valueSize)){
-                offset = ftell(gcVlog)+keySize;     // value offset
+        std::cerr << "gc" << size << std::endl;
+        while (headVLogNum_ != lastVlogNum_) {
+            FILE *gcVlog = OpenVlog(headVLogNum_);
+            fseek(gcVlog, 0, SEEK_SET);
+            while (2 == fscanf(gcVlog, "%d$%d$", &keySize, &valueSize)) {
+                offset = ftell(gcVlog) + keySize;     // value offset
                 char key[keySize];
-                fread(key,keySize,1,gcVlog);
+                fread(key, keySize, 1, gcVlog);
                 uint64_t startGet = NowMiros();
-                auto s = indexDB_->Get(leveldb::ReadOptions(),key,&valueInfo);
+                auto s = indexDB_->Get(leveldb::ReadOptions(), key, &valueInfo);
                 STATS::Time(STATS::GetInstance()->gcReadLsm, startGet, NowMiros());
-                if(!s.ok()) {
-                    fseek(gcVlog,valueSize,SEEK_CUR);
-                    done+=(keySize+valueSize);
+                if (!s.ok()) {
+                    fseek(gcVlog, valueSize, SEEK_CUR);
+                    done += (keySize + valueSize);
                     continue;
                 }
 
                 int vlogNum;
                 size_t offset1;
                 size_t valueSize1;
-                parseValueInfo(valueInfo,vlogNum,offset1,valueSize1);
-                if(vlogNum==headVLogNum_&&offset==offset1){
+                parseValueInfo(valueInfo, vlogNum, offset1, valueSize1);
+                if (vlogNum == headVLogNum_ && offset == offset1) {
                     // write back
                     char value[valueSize];
-                    fread(value,valueSize,1,gcVlog);
+                    fread(value, valueSize, 1, gcVlog);
                     uint64_t startPut = NowMiros();
-                    Put(leveldb::WriteOptions(),key,value);
-                    STATS::Time(STATS::GetInstance()->gcPutBack,startPut,NowMiros());
+                    Put(leveldb::WriteOptions(), key, value);
+                    STATS::Time(STATS::GetInstance()->gcPutBack, startPut, NowMiros());
+                    STATS::Add(STATS::GetInstance()->gcWritebackBytes, valueSize);
                 } else {
                     // drop
-                    fseek(gcVlog,valueSize,SEEK_CUR);
-                    done+=(keySize+valueSize);
+                    fseek(gcVlog, valueSize, SEEK_CUR);
+                    done += (keySize + valueSize);
                 }
             }
             DeleteVlog(headVLogNum_);
             headVLogNum_++;
             //save head vlog number
-            indexDB_->Put(leveldb::WriteOptions(),"headVlogNum",std::to_string(headVLogNum_));
-            if(done>size) break;
+            indexDB_->Put(leveldb::WriteOptions(), "headVlogNum", std::to_string(headVLogNum_));
+            if (done > size) break;
         }
-        STATS::Time(STATS::GetInstance()->gcTime,startMicros,NowMiros());
-        std::cerr<<"done "<<done<<std::endl;
+        STATS::Time(STATS::GetInstance()->gcTime, startMicros, NowMiros());
+        std::cerr << "done " << done << std::endl;
         return s;
     }
 
     Status VlogDBImpl::DeleteVlog(int vlogNum) {
         std::string filename = vlogDir_ + "/" + std::to_string(vlogNum);
-        return remove(filename.c_str())==0?Status():Status().IOError("delete vlog error\n");
+        return remove(filename.c_str()) == 0 ? Status() : Status().IOError("delete vlog error\n");
     }
 }
