@@ -63,6 +63,7 @@ namespace leveldb {
         uint64_t numVisited;
 
         FILE* OpenVlog(int vlogNum);  // open a vlog file
+        FILE* NewVlog(); // create and open a new vlog, and store next number in lsm
         WriteBatch* BuildBatchGroup(Writer** last_writer)
         EXCLUSIVE_LOCKS_REQUIRED(mutex_);
         Status MakeRoomForWrite(bool force /* compact even if there is room? */)
@@ -79,6 +80,7 @@ namespace leveldb {
         void Recover();
         Status GarbageCollect(size_t size);
         Status DeleteVlog(int vlogNum);
+        Status MergeVlog(const std::vector<int>& vlogs);
     };
 }
 

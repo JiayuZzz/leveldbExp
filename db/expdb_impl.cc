@@ -14,6 +14,7 @@
 extern leveldb::Gctable *gctable_;
 
 namespace leveldb {
+
     struct ExpDBImpl::Writer {
         Status status;
         WriteBatch *batch;
@@ -51,7 +52,10 @@ namespace leveldb {
         if (access(vlogDir_.c_str(), F_OK) != 0 && options_.create_if_missing) {
             env_->CreateDir(vlogDir_);
         }
-
+        if (options_.gcAfterExe > 0) {
+            fprintf(stderr, "background gc\n");
+            threadPool_->addTask(&ExpDBImpl::GarbageCollect, this, options_.gcAfterExe);
+        }
         Recover();  //recover nextvlognum and lastsequence
         return;
     }
@@ -331,8 +335,10 @@ namespace leveldb {
             FILE *f = OpenVlog(vlogNum);
             if (options_.numThreads == 1)
                 if (visited.find(vlogNum) == visited.end()) visited.insert(vlogNum);
-            readahead(fileno(f), (offset / 8192) * 8192, 8192);  // each file only readahead once
 
+            readahead(fileno(f), (offset / 12288) * 12288, 12288);  // each file only readahead once
+
+            //readahead(fileno(f), (offset / 4096) * 4096, 4096);  // each file only readahead once
             size_t got = pread(fileno(f), value, valueSize, offset);
             if (got != valueSize) {
                 s.IOError("get value error\n");
@@ -345,9 +351,9 @@ namespace leveldb {
     }
 
     bool ExpDBImpl::GetProperty(const leveldb::Slice &property, std::string *value) {
-        if (options_.gcAfterExe > 0) {
-            GarbageCollect(options_.gcAfterExe);
-        }
+//        if (options_.gcAfterExe > 0) {
+//            GarbageCollect(options_.gcAfterExe);
+//        }
         return indexDB_->GetProperty(property, value);
     }
 
@@ -445,13 +451,10 @@ namespace leveldb {
         Iterator *iter = mem->NewIterator();
         mutex_.Unlock();
         iter->SeekToFirst();
-        int vlogNum = nextVlogNum_;
         FILE *f;
+        int vlogNum = nextVlogNum_;
         if (iter->Valid()) {
-            f = OpenVlog(vlogNum);
-            nextVlogNum_++;
-            // persist in lsm
-            indexDB_->Put(leveldb::WriteOptions(), "nextVlogNum", std::to_string(nextVlogNum_));
+            f = NewVlog();
         } else {
             return s.NotFound("Invalid Mem Iterator");
         }
@@ -507,6 +510,12 @@ namespace leveldb {
             openedVlog_[vlogNum] = fopen(filename.c_str(), "a+");
         }
         return openedVlog_[vlogNum];
+    }
+
+    FILE* ExpDBImpl::NewVlog() {
+        FILE* f = OpenVlog(nextVlogNum_++);
+        indexDB_->Put(leveldb::WriteOptions(), "nextVlogNum", std::to_string(nextVlogNum_));
+        return f;
     }
 
     Status ExpDBImpl::readValue(std::string &valueInfo, std::string *val) {
@@ -580,6 +589,21 @@ namespace leveldb {
         STATS::Time(STATS::GetInstance()->gcTime, startMicros, NowMiros());
         return s;
     }
+
+//    Status ExpDBImpl::MergeVlog(const std::vector<int>& vlogs) {
+//        std::vector<FILE*> toBeMerge = std::vector<FILE*>(vlogs.size());
+//        std::vector<std::set<int>::iterator> gcIters;
+//        for (int i=0;i<vlogs.size();i++){
+//            toBeMerge[i] = OpenVlog(vlogs[i]);
+//            Gcnode* node = gctable_->GetNode(vlogs[i]);
+//            if(node) gcIters[i] = node->offsets.begin();
+//            else gcIters[i] = nullptr;
+//        }
+//
+//        while(true){
+//
+//        }
+//    }
 
     Status ExpDBImpl::DeleteVlog(int vlogNum) {
         std::string filename = vlogDir_ + "/" + std::to_string(vlogNum);

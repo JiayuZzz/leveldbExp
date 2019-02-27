@@ -29,14 +29,6 @@ namespace leveldb {
         Gcnode* last;
         Gcnode* toDel;   // previous last node
 
-        Gcnode* GetNode(int vlogNum){
-//            if(last==nullptr) std::cerr<<"n\n";
-//            else std::cerr<<last->gSize<<"\n";
-            auto iter = numToNode.find(vlogNum);
-            if(iter == numToNode.end()) return nullptr;
-            else return iter->second;
-        }
-
         Gcnode* Insert(int vlogNum){
             Gcnode* newNode = new Gcnode(vlogNum,nullptr,first);
             if(first) first->pre = newNode;
@@ -60,6 +52,14 @@ namespace leveldb {
 
         Gcnode* GetLast(){
             return last;
+        }
+
+        Gcnode* GetNode(int vlogNum){
+//            if(last==nullptr) std::cerr<<"n\n";
+//            else std::cerr<<last->gSize<<"\n";
+            auto iter = numToNode.find(vlogNum);
+            if(iter == numToNode.end()) return nullptr;
+            else return iter->second;
         }
 
         void DropLast(){

@@ -41,6 +41,8 @@ leveldb::Gctable* gctable_ = new leveldb::Gctable();
 
 namespace leveldb {
 
+FILE* wl = fopen("write_latencies","a+");
+FILE* rl = fopen("read_latencies","a+");
 const int kNumNonTableCacheFiles = 10;
 
 // Information kept for every waiting writer
@@ -926,7 +928,8 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   bool has_current_user_key = false;
   SequenceNumber last_sequence_for_key = kMaxSequenceNumber;
   uint64_t startIter = NowMiros();
-  std::map<int, std::pair<int,std::vector<int>>> droped;
+  // dropped key-offset for each vlog
+  std::map<int, std::pair<int,std::vector<int>>> dropped;
   for (; input->Valid() && !shutting_down_.Acquire_Load(); ) {
     // Prioritize immutable compaction work
     if (has_imm_.NoBarrier_Load() != nullptr) {
@@ -973,38 +976,23 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
         uint64_t starBuildGc = NowMiros();
         std::string key = input->key().ToString();
         key = key.substr(0,key.size()-8);
+        // Add dropped key to gctable
         if(key!="nextVlogNum"&&key!="lastSequence") {
             std::string val = input->value().ToString();
             int vlogNum;
             int offset;
             int vSize;
-//            std::cerr<<"key"<<input->key().ToString()<<"aaaaaa \n"<<val<<"\naaaaaa\n"<<std::endl;
             sscanf(val.c_str(), "%d$%d$%d", &vlogNum, &offset, &vSize);
-//            if (vSize < 0 || vSize > 300000000) {
-//                std::cerr << "\n\n\n\nvsize: " << vSize << std::endl;
-//                std::cerr << "<$$$$$$$$$$$$$$$0$$$$$$$$$$$$$\n";
-//                exit(-1);
-//            }
-            auto iter = droped.find(vlogNum);
-            if (iter != droped.end()) {
+            auto iter = dropped.find(vlogNum);
+            if (iter != dropped.end()) {
                 (*iter).second.first += (vSize + input->key().size());
-//                std::cerr << "file" << (*iter).first << "%%%%" << (*iter).second.first << "+"
-//                          << (vSize + input->key().size()) << std::endl;
-//                if ((*iter).second.first < 0 || (*iter).second.first > 300000000) {
-//                    std::cerr << "<###############0###############\n";
-//                    exit(-1);
-//                }
                 (*iter).second.second.push_back(offset);
             } else {
                 std::vector<int> tmp(1, offset);
                 std::pair<int, std::vector<int>> tmpP;
-                droped.insert(std::pair<int, std::pair<int, std::vector<int>>>(vlogNum, tmpP));
-                droped[vlogNum].first = vSize;
-                droped[vlogNum].second = tmp;
-//                if (droped[vlogNum].first < 0 || droped[vlogNum].first > 300000000) {
-//                    std::cerr << "vsize: " << vSize << std::endl;
-//                    std::cerr << "<$$$$$$$$$$$$$$$0$$$$$$$$$$$$$\n";
-//                }
+                dropped.insert(std::pair<int, std::pair<int, std::vector<int>>>(vlogNum, tmpP));
+                dropped[vlogNum].first = vSize;
+                dropped[vlogNum].second = tmp;
             }
         }
         STATS::Time(STATS::GetInstance()->gcTable,starBuildGc,NowMiros());
@@ -1045,9 +1033,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
         compact->current_output()->smallest.DecodeFrom(key);
       }
       compact->current_output()->largest.DecodeFrom(key);
-      int64_t startAdd = NowMiros();
       compact->builder->Add(key, input->value());
-      STATS::Time(STATS::GetInstance()->compactionAddToBuilder,startAdd,NowMiros());
 
       // Close output file if it is big enough
       if (compact->builder->FileSize() >=
@@ -1059,14 +1045,14 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
       }
     }
 
+    int64_t startNext = NowMiros();
     input->Next();
+    STATS::Time(STATS::GetInstance()->compactionFindNext,startNext,NowMiros());
   }
-  for(auto & drop : droped) {
-//    std::cerr<<droped.size()<<std::endl;
-//    std::cout<<drop.second.first<<std::endl;
+  for(auto & drop : dropped) {
     gctable_->Add(drop.first,drop.second.first,drop.second.second);
   }
-  STATS::Time(STATS::GetInstance()->compactionIterTime,startIter,NowMiros()+imm_micros);
+  STATS::Time(STATS::GetInstance()->compactionIterTime,startIter,NowMiros());
 
   if (status.ok() && shutting_down_.Acquire_Load()) {
     status = Status::IOError("Deleting DB during compaction");
@@ -1215,6 +1201,7 @@ Status DBImpl::Get(const ReadOptions& options,
   if (imm != nullptr) imm->Unref();
   current->Unref();
   STATS::TimeAndCount(STATS::GetInstance()->readStat,startMicros,Env::Default()->NowMicros());
+  fprintf(rl,"%lu,",NowMiros()-startMicros);
   return s;
 }
 
@@ -1252,6 +1239,7 @@ Status DBImpl::Put(const WriteOptions& o, const Slice& key, const Slice& val) {
   uint64_t startMicros = NowMiros();
   Status s = DB::Put(o, key, val);
   STATS::TimeAndCount(STATS::GetInstance()->writeStat, startMicros, NowMiros());
+  fprintf(wl,"%lu,",NowMiros()-startMicros);
   return s;
 }
 
@@ -1408,6 +1396,7 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       // this delay hands over some CPU to the compaction thread in
       // case it is sharing the same core as the writer.
       mutex_.Unlock();
+      fprintf(wl,"-500");  //means slow down
       env_->SleepForMicroseconds(1000);
       allow_delay = false;  // Do not delay a single write more than once
       mutex_.Lock();
@@ -1419,10 +1408,12 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       // We have filled up the current memtable, but the previous
       // one is still being compacted, so we wait.
       Log(options_.info_log, "Current memtable full; waiting...\n");
+      fprintf(wl,"-1000,");   // means wait imm flush
       background_work_finished_signal_.Wait();
     } else if (versions_->NumLevelFiles(0) >= config::kL0_StopWritesTrigger) {
       // There are too many level-0 files.
       Log(options_.info_log, "Too many L0 files; waiting...\n");
+      fprintf(wl,"-2000");   // means wait l0 compaction
       background_work_finished_signal_.Wait();
     } else {
       // Attempt to switch to a new memtable and trigger compaction of old
@@ -1549,11 +1540,9 @@ void DBImpl::GetApproximateSizes(
 // Default implementations of convenience methods that subclasses of DB
 // can call if they wish
 Status DB::Put(const WriteOptions& opt, const Slice& key, const Slice& value) {
-  uint64_t startMicros = NowMiros();
   WriteBatch batch;
   batch.Put(key, value);
   Status s = Write(opt, &batch);
-  STATS::TimeAndCount(STATS::GetInstance()->writeVlogStat, startMicros, NowMiros());
   return s;
 }
 

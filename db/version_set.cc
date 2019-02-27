@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <stdio.h>
+#include <include/leveldb/statistics.h>
 #include "db/filename.h"
 #include "db/log_reader.h"
 #include "db/log_writer.h"
@@ -267,6 +268,8 @@ struct Saver {
   std::string* value;
 };
 }
+
+FILE* f = fopen("fp.txt","w");
 static void SaveValue(void* arg, const Slice& ikey, const Slice& v) {
   Saver* s = reinterpret_cast<Saver*>(arg);
   ParsedInternalKey parsed_key;
@@ -279,6 +282,11 @@ static void SaveValue(void* arg, const Slice& ikey, const Slice& v) {
         s->value->assign(v.data(), v.size());
       }
     }
+//    else {
+//         test
+//      std::string s = ikey.ToString();
+//      fprintf(f,"%s,",s.substr(0,s.size()-8).c_str());
+//    }
   }
 }
 
@@ -351,6 +359,7 @@ Status Version::Get(const ReadOptions& options,
   std::vector<FileMetaData*> tmp;
   FileMetaData* tmp2;
   for (int level = 0; level < config::kNumLevels; level++) {
+    uint64_t startMicros = NowMiros();
     size_t num_files = files_[level].size();
     if (num_files == 0) continue;
 
@@ -409,6 +418,7 @@ Status Version::Get(const ReadOptions& options,
       saver.value = value;
       s = vset_->table_cache_->Get(options, f->number, f->file_size,
                                    ikey, &saver, SaveValue);
+      STATS::TimeAndCount(STATS::GetInstance()->readLevelStat[level], startMicros, NowMiros());
       if (!s.ok()) {
         return s;
       }
@@ -425,6 +435,7 @@ Status Version::Get(const ReadOptions& options,
           return s;
       }
     }
+
   }
 
   return Status::NotFound(Slice());  // Use an empty error message for speed

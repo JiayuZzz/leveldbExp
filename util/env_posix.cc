@@ -27,6 +27,7 @@
 #include "util/mutexlock.h"
 #include "util/posix_logger.h"
 #include "util/env_posix_test_helper.h"
+#include "leveldb/statistics.h"
 
 // HAVE_FDATASYNC is defined in the auto-generated port_config.h, which is
 // included by port_stdcxx.h.
@@ -312,8 +313,10 @@ class PosixWritableFile : public WritableFile {
 
   virtual Status Sync() {
     // Ensure new files referred to by the manifest are in the filesystem.
+    uint64_t startSync = NowMiros();
     Status s = SyncDirIfManifest();
     if (!s.ok()) {
+      STATS::Time(STATS::GetInstance()->compactionSync, startSync, NowMiros());
       return s;
     }
     s = FlushBuffered();
@@ -322,6 +325,7 @@ class PosixWritableFile : public WritableFile {
         s = PosixError(filename_, errno);
       }
     }
+    STATS::Time(STATS::GetInstance()->compactionSync, startSync, NowMiros());
     return s;
   }
 
