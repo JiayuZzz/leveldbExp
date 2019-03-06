@@ -79,7 +79,7 @@ if(BUILD_SHARED_LIBS)
   add_compile_options(-fvisibility=hidden)
 endif(BUILD_SHARED_LIBS)
 
-add_library(leveldb "" include/leveldb/statistics.h)
+add_library(leveldb "" include/leveldb/statistics.h db/vtable.cpp db/vtable.h)
 target_sources(leveldb
   PRIVATE
     "${PROJECT_BINARY_DIR}/${LEVELDB_PORT_CONFIG_DIR}/port_config.h"

@@ -11,6 +11,11 @@
 #include "leveldb/db.h"
 #include "leveldb/env.h"
 #include "leveldb/iterator.h"
+#include "unistd.h"
+#include "vtable.h"
+#include "sstream"
+
+extern int inCompaction;
 
 namespace leveldb {
 
@@ -37,7 +42,13 @@ Status BuildTable(const std::string& dbname,
     for (; iter->Valid(); iter->Next()) {
       Slice key = iter->key();
       meta->largest.DecodeFrom(key);
-      builder->Add(key, iter->value());
+      //put real value to vtable
+      long offset = Vtable::Instance()->Put(key.ToString(), iter->value().ToString());
+      int vtableNum = Vtable::Instance()->Current();
+      std::stringstream valueInfo;
+      valueInfo<<vtableNum<<"$"<<offset<<"$"<<iter->value().size();
+      builder->Add(key, valueInfo.str());
+//      builder->Add(key, iter->value());
     }
 
     // Finish and check for builder errors
@@ -75,6 +86,8 @@ Status BuildTable(const std::string& dbname,
 
   if (s.ok() && meta->file_size > 0) {
     // Keep it
+    // vtable
+    Vtable::Instance()->SetCurrent(Vtable::Instance()->Current()+1);
   } else {
     env->DeleteFile(fname);
   }

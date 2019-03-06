@@ -35,6 +35,14 @@
 #include "util/logging.h"
 #include "util/mutexlock.h"
 #include "leveldb/statistics.h"
+#include "unistd.h"
+#include "sys/stat.h"
+#include "vtable.h"
+
+#ifndef GLOBAL_FOR_EXP
+#define GLOBAL_FOR_EXP
+int inCompaction;
+#endif
 
 namespace leveldb {
 
@@ -145,7 +153,8 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname)
       background_compaction_scheduled_(false),
       manual_compaction_(nullptr),
       versions_(new VersionSet(dbname_, &options_, table_cache_,
-                               &internal_comparator_)) {
+                               &internal_comparator_)){
+    Vtable::Instance()->SetPath(dbname+"/Vtables");
   has_imm_.Release_Store(nullptr);
 }
 
@@ -1584,5 +1593,4 @@ Status DestroyDB(const std::string& dbname, const Options& options) {
   }
   return result;
 }
-
 }  // namespace leveldb
