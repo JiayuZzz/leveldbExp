@@ -35,6 +35,10 @@ namespace leveldb {
             mkdir(vlogDir.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
         }
         Recover();
+        if(options.gcDuringExe>0){
+            std::cerr<<"background gc\n";
+            threadPool_->addTask(&VlogDBImpl::GarbageCollect,this,options.gcDuringExe);
+        }
     }
 
     FILE *VlogDBImpl::OpenVlog(int vlogNum) {
@@ -216,6 +220,7 @@ namespace leveldb {
         Status s;
         std::cerr << "gc" << size << std::endl;
         while (headVLogNum_ != lastVlogNum_) {
+            std::cerr<<"start gc\n";
             FILE *gcVlog = OpenVlog(headVLogNum_);
             fseek(gcVlog, 0, SEEK_SET);
             while (2 == fscanf(gcVlog, "%d$%d$", &keySize, &valueSize)) {
@@ -226,6 +231,7 @@ namespace leveldb {
                 auto s = indexDB_->Get(leveldb::ReadOptions(), key, &valueInfo);
                 STATS::Time(STATS::GetInstance()->gcReadLsm, startGet, NowMiros());
                 if (!s.ok()) {
+                    std::cerr<<"get error\n";
                     fseek(gcVlog, valueSize, SEEK_CUR);
                     done += (keySize + valueSize);
                     continue;
@@ -240,6 +246,7 @@ namespace leveldb {
                     char value[valueSize];
                     fread(value, valueSize, 1, gcVlog);
                     uint64_t startPut = NowMiros();
+                    std::cerr<<"gc put\n";
                     Put(leveldb::WriteOptions(), key, value);
                     STATS::Time(STATS::GetInstance()->gcPutBack, startPut, NowMiros());
                     STATS::Add(STATS::GetInstance()->gcWritebackBytes, valueSize);
@@ -249,6 +256,7 @@ namespace leveldb {
                     done += (keySize + valueSize);
                 }
             }
+            std::cerr<<"gc done\n";
             DeleteVlog(headVLogNum_);
             headVLogNum_++;
             //save head vlog number

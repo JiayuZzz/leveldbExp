@@ -37,8 +37,6 @@
 #include "leveldb/statistics.h"
 #include <map>
 
-leveldb::Gctable* gctable_ = new leveldb::Gctable();
-
 namespace leveldb {
 
 FILE* wl = fopen("write_latencies","a+");
@@ -928,8 +926,6 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   bool has_current_user_key = false;
   SequenceNumber last_sequence_for_key = kMaxSequenceNumber;
   uint64_t startIter = NowMiros();
-  // dropped key-offset for each vlog
-  std::map<int, std::pair<int,std::vector<int>>> dropped;
   for (; input->Valid() && !shutting_down_.Acquire_Load(); ) {
     // Prioritize immutable compaction work
     if (has_imm_.NoBarrier_Load() != nullptr) {
@@ -973,29 +969,6 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
       if (last_sequence_for_key <= compact->smallest_snapshot) {
         // Hidden by an newer entry for same user key
         drop = true;    // (A)
-        uint64_t starBuildGc = NowMiros();
-        std::string key = input->key().ToString();
-        key = key.substr(0,key.size()-8);
-        // Add dropped key to gctable
-        if(key!="nextVlogNum"&&key!="lastSequence") {
-            std::string val = input->value().ToString();
-            int vlogNum;
-            int offset;
-            int vSize;
-            sscanf(val.c_str(), "%d$%d$%d", &vlogNum, &offset, &vSize);
-            auto iter = dropped.find(vlogNum);
-            if (iter != dropped.end()) {
-                (*iter).second.first += (vSize + input->key().size());
-                (*iter).second.second.push_back(offset);
-            } else {
-                std::vector<int> tmp(1, offset);
-                std::pair<int, std::vector<int>> tmpP;
-                dropped.insert(std::pair<int, std::pair<int, std::vector<int>>>(vlogNum, tmpP));
-                dropped[vlogNum].first = vSize;
-                dropped[vlogNum].second = tmp;
-            }
-        }
-        STATS::Time(STATS::GetInstance()->gcTable,starBuildGc,NowMiros());
       } else if (ikey.type == kTypeDeletion &&
                  ikey.sequence <= compact->smallest_snapshot &&
                  compact->compaction->IsBaseLevelForKey(ikey.user_key)) {
@@ -1048,9 +1021,6 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
     int64_t startNext = NowMiros();
     input->Next();
     STATS::Time(STATS::GetInstance()->compactionFindNext,startNext,NowMiros());
-  }
-  for(auto & drop : dropped) {
-    gctable_->Add(drop.first,drop.second.first,drop.second.second);
   }
   STATS::Time(STATS::GetInstance()->compactionIterTime,startIter,NowMiros());
 

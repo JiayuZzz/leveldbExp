@@ -99,7 +99,6 @@ target_sources(leveldb
     "${PROJECT_SOURCE_DIR}/db/filename.h"
     "${PROJECT_SOURCE_DIR}/db/funcs.h"
     "${PROJECT_SOURCE_DIR}/db/funcs.cc"
-    "${PROJECT_SOURCE_DIR}/db/gctable.h"
     "${PROJECT_SOURCE_DIR}/db/log_format.h"
     "${PROJECT_SOURCE_DIR}/db/log_reader.cc"
     "${PROJECT_SOURCE_DIR}/db/log_reader.h"
@@ -177,7 +176,6 @@ target_sources(leveldb
     "${LEVELDB_PUBLIC_INCLUDE_DIR}/write_batch.h"
     "${LEVELDB_PUBLIC_INCLUDE_DIR}/statistics.h"
     "${LEVELDB_PUBLIC_INCLUDE_DIR}/vlog.h"
-    "${LEVELDB_PUBLIC_INCLUDE_DIR}/expdb.h"
     "${LEVELDB_PUBLIC_INCLUDE_DIR}/threadpool.h"
 )
 
@@ -408,7 +406,6 @@ if(LEVELDB_INSTALL)
       "${PROJECT_SOURCE_DIR}/${LEVELDB_PUBLIC_INCLUDE_DIR}/write_batch.h"
       "${PROJECT_SOURCE_DIR}/${LEVELDB_PUBLIC_INCLUDE_DIR}/statistics.h"
       "${PROJECT_SOURCE_DIR}/${LEVELDB_PUBLIC_INCLUDE_DIR}/vlog.h"
-      "${PROJECT_SOURCE_DIR}/${LEVELDB_PUBLIC_INCLUDE_DIR}/expdb.h"
       "${PROJECT_SOURCE_DIR}/${LEVELDB_PUBLIC_INCLUDE_DIR}/threadpool.h"
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/leveldb
   )

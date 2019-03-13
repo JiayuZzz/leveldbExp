@@ -16,6 +16,7 @@ namespace leveldb {
         size_t vlogSize = 128*1024*1024;   // single vlog file max size
         size_t numOpenfile = 50000;
         size_t gcAfterExe = 0;
+        size_t gcDuringExe = 0;
     };
 
     class VlogDB {
