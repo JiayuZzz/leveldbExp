@@ -35,9 +35,6 @@ namespace leveldb {
             mkdir(vlogDir.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
         }
         Recover();
-        if (options_.gcAfterExe > 0) {
-            threadPool_->addTask(&VlogDBImpl::GarbageCollect, this, options_.gcAfterExe);
-        }
     }
 
     FILE *VlogDBImpl::OpenVlog(int vlogNum) {
@@ -64,6 +61,7 @@ namespace leveldb {
         appendStr(vlogStr, {keySizeStr, "$", valueSizeStr, "$", key, val}); // | key size | value size | key | value |
         FILE *vlog = OpenVlog(lastVlogNum_);
         fwrite(vlogStr.c_str(), vlogStr.size(), 1, vlog);
+        STATS::Add(STATS::GetInstance()->vlogWriteDisk,vlogStr.size());
 
         long vlogOffset = ftell(vlog) - val.size();
         std::string vlogOffsetStr = std::to_string(vlogOffset);
@@ -168,7 +166,9 @@ namespace leveldb {
     }
 
     bool VlogDBImpl::GetProperty(const Slice &property, std::string *value) {
+        fprintf(stderr,"getproperty\n");
         if (options_.gcAfterExe > 0) {
+            fprintf(stderr,"start gc\n");
             GarbageCollect(options_.gcAfterExe);
         }
         return indexDB_->GetProperty(property, value);

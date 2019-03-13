@@ -48,6 +48,7 @@ namespace leveldb {
         uint64_t addData;
         uint64_t flushTable;
         uint64_t writeDiskSize;
+        uint64_t vlogWriteDisk;
         uint64_t finishTable;
 
         static void TimeAndCount(statType &stat, uint64_t start, uint64_t end) {
@@ -127,8 +128,9 @@ namespace leveldb {
             printf("Build gc table time: %.2f\n", gctable / 1000000);
             printf("Vlog gc time: %.2f s\n", (double) STATS::GetInstance()->gcTime / 1000000);
             printf("Read LSM time during gc: %.2f\n", (double) STATS::GetInstance()->gcReadLsm / 1000000);
-            printf("Put back to lsm time during gc: %.2f\n", (double) STATS::GetInstance()->gcPutBack / 1000000);
+            printf("Put back time during gc: %.2f\n", (double) STATS::GetInstance()->gcPutBack / 1000000);
             printf("Write back to vlog bytes during gc: %lu\n", gcWritebackBytes);
+            printf("vlog write disk size: %.2fMB\n",vlogWriteDisk/1000000.0);
         }
 
 
