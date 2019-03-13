@@ -90,8 +90,6 @@ target_sources(leveldb
     "${PROJECT_SOURCE_DIR}/db/db_impl.h"
     "${PROJECT_SOURCE_DIR}/db/vlog_impl.cc"
     "${PROJECT_SOURCE_DIR}/db/vlog_impl.h"
-    "${PROJECT_SOURCE_DIR}/db/expdb_impl.h"
-    "${PROJECT_SOURCE_DIR}/db/expdb_impl.cc"
     "${PROJECT_SOURCE_DIR}/db/db_iter.cc"
     "${PROJECT_SOURCE_DIR}/db/db_iter.h"
     "${PROJECT_SOURCE_DIR}/db/dbformat.cc"
