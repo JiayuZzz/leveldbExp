@@ -89,7 +89,10 @@ namespace leveldb {
         uint64_t startMicro = NowMiros();
         std::string valueInfo;
         Status s = indexDB_->Get(readOptions, key, &valueInfo);
-        if (!s.ok()) return s;
+        if (!s.ok()) {
+            std::cerr<<"get "<<key<<"error\n";
+            return s;
+        }
         s = readValue(valueInfo, val);
         STATS::TimeAndCount(STATS::GetInstance()->readVlogStat, startMicro, NowMiros());
         return s;
@@ -220,18 +223,23 @@ namespace leveldb {
         Status s;
         std::cerr << "gc" << size << std::endl;
         while (headVLogNum_ != lastVlogNum_) {
-            std::cerr<<"start gc\n";
+            if (access((vlogDir_+"/"+std::to_string(headVLogNum_)).c_str(), F_OK) == -1) {
+                std::cerr<<" increase vlog num"<<headVLogNum_<<"\n";
+                headVLogNum_++;
+                continue;
+            }
             FILE *gcVlog = OpenVlog(headVLogNum_);
             fseek(gcVlog, 0, SEEK_SET);
             while (2 == fscanf(gcVlog, "%d$%d$", &keySize, &valueSize)) {
                 offset = ftell(gcVlog) + keySize;     // value offset
-                char key[keySize];
+                char key[keySize+1];
                 fread(key, keySize, 1, gcVlog);
+                key[keySize]='\0';
                 uint64_t startGet = NowMiros();
                 auto s = indexDB_->Get(leveldb::ReadOptions(), key, &valueInfo);
                 STATS::Time(STATS::GetInstance()->gcReadLsm, startGet, NowMiros());
                 if (!s.ok()) {
-                    std::cerr<<"get error\n";
+//                    std::cerr<<"get error\n";
                     fseek(gcVlog, valueSize, SEEK_CUR);
                     done += (keySize + valueSize);
                     continue;
@@ -246,7 +254,7 @@ namespace leveldb {
                     char value[valueSize];
                     fread(value, valueSize, 1, gcVlog);
                     uint64_t startPut = NowMiros();
-                    std::cerr<<"gc put\n";
+//                    std::cerr<<"gc put\n";
                     Put(leveldb::WriteOptions(), key, value);
                     STATS::Time(STATS::GetInstance()->gcPutBack, startPut, NowMiros());
                     STATS::Add(STATS::GetInstance()->gcWritebackBytes, valueSize);
