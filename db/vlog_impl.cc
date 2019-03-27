@@ -236,6 +236,7 @@ namespace leveldb {
                 fread(key, keySize, 1, gcVlog);
                 key[keySize]='\0';
                 uint64_t startGet = NowMiros();
+
                 auto s = indexDB_->Get(leveldb::ReadOptions(), key, &valueInfo);
                 STATS::Time(STATS::GetInstance()->gcReadLsm, startGet, NowMiros());
                 if (!s.ok()) {
@@ -245,11 +246,14 @@ namespace leveldb {
                     continue;
                 }
 
+
                 int vlogNum;
                 size_t offset1;
                 size_t valueSize1;
                 parseValueInfo(valueInfo, vlogNum, offset1, valueSize1);
+
                 if (vlogNum == headVLogNum_ && offset == offset1) {
+//                if(true){
                     // write back
                     char value[valueSize];
                     fread(value, valueSize, 1, gcVlog);
@@ -274,6 +278,33 @@ namespace leveldb {
         STATS::Time(STATS::GetInstance()->gcTime, startMicros, NowMiros());
         std::cerr << "done " << done << std::endl;
         return s;
+    }
+
+    Status VlogDBImpl::SimplePut(const leveldb::WriteOptions writeOptions, const std::string &key, const std::string &val) {
+        uint64_t startMicro = NowMiros();
+        long keySize = key.size();
+        long valueSize = val.size();
+        std::string keySizeStr = std::to_string(keySize);
+        std::string valueSizeStr = std::to_string(valueSize);
+
+        std::string vlogStr = "";
+        appendStr(vlogStr, {keySizeStr, "$", valueSizeStr, "$", key, val}); // | key size | value size | key | value |
+        FILE *vlog = OpenVlog(lastVlogNum_);
+        fwrite(vlogStr.c_str(), vlogStr.size(), 1, vlog);
+        STATS::Add(STATS::GetInstance()->vlogWriteDisk,vlogStr.size());
+
+        long vlogOffset = ftell(vlog) - val.size();
+        std::string vlogOffsetStr = std::to_string(vlogOffset);
+        std::string indexStr = "";
+        appendStr(indexStr, {std::to_string(lastVlogNum_), "$", vlogOffsetStr, "$", valueSizeStr});
+        //Status s = indexDB_->Put(writeOptions, key, indexStr);
+        // save tail
+        if (ftell(vlog) > options_.vlogSize) {
+            lastVlogNum_++;
+            indexDB_->Put(writeOptions, "lastVlogNum", std::to_string(lastVlogNum_));
+        }
+        STATS::TimeAndCount(STATS::GetInstance()->writeVlogStat, startMicro, NowMiros());
+        return Status();
     }
 
     Status VlogDBImpl::DeleteVlog(int vlogNum) {

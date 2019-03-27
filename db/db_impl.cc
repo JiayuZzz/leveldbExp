@@ -39,8 +39,6 @@
 
 namespace leveldb {
 
-FILE* wl = fopen("write_latencies","a+");
-FILE* rl = fopen("read_latencies","a+");
 const int kNumNonTableCacheFiles = 10;
 
 // Information kept for every waiting writer
@@ -1129,6 +1127,11 @@ Status DBImpl::Get(const ReadOptions& options,
                    std::string* value) {
   uint64_t startMicros = Env::Default()->NowMicros();
   Status s;
+  if(readCache.find(key.ToString())!=readCache.end()){
+      *value = readCache[key.ToString()];
+      STATS::TimeAndCount(STATS::GetInstance()->readStat,startMicros,NowMiros());
+      return s;
+  }
   MutexLock l(&mutex_);
   SequenceNumber snapshot;
   if (options.snapshot != nullptr) {
@@ -1170,8 +1173,8 @@ Status DBImpl::Get(const ReadOptions& options,
   mem->Unref();
   if (imm != nullptr) imm->Unref();
   current->Unref();
+  readCache[key.ToString()] = *value;
   STATS::TimeAndCount(STATS::GetInstance()->readStat,startMicros,Env::Default()->NowMicros());
-  fprintf(rl,"%lu,",NowMiros()-startMicros);
   return s;
 }
 
@@ -1209,7 +1212,6 @@ Status DBImpl::Put(const WriteOptions& o, const Slice& key, const Slice& val) {
   uint64_t startMicros = NowMiros();
   Status s = DB::Put(o, key, val);
   STATS::TimeAndCount(STATS::GetInstance()->writeStat, startMicros, NowMiros());
-  fprintf(wl,"%lu,",NowMiros()-startMicros);
   return s;
 }
 
@@ -1366,7 +1368,6 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       // this delay hands over some CPU to the compaction thread in
       // case it is sharing the same core as the writer.
       mutex_.Unlock();
-      fprintf(wl,"-500");  //means slow down
       env_->SleepForMicroseconds(1000);
       allow_delay = false;  // Do not delay a single write more than once
       mutex_.Lock();
@@ -1378,12 +1379,10 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       // We have filled up the current memtable, but the previous
       // one is still being compacted, so we wait.
       Log(options_.info_log, "Current memtable full; waiting...\n");
-      fprintf(wl,"-1000,");   // means wait imm flush
       background_work_finished_signal_.Wait();
     } else if (versions_->NumLevelFiles(0) >= config::kL0_StopWritesTrigger) {
       // There are too many level-0 files.
       Log(options_.info_log, "Too many L0 files; waiting...\n");
-      fprintf(wl,"-2000");   // means wait l0 compaction
       background_work_finished_signal_.Wait();
     } else {
       // Attempt to switch to a new memtable and trigger compaction of old

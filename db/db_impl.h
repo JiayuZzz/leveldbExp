@@ -14,6 +14,7 @@
 #include "leveldb/env.h"
 #include "port/port.h"
 #include "port/thread_annotations.h"
+#include "unordered_map"
 
 namespace leveldb {
 
@@ -65,6 +66,7 @@ class DBImpl : public DB {
   void RecordReadSample(Slice key);
 
  private:
+  std::unordered_map<std::string, std::string> readCache{};
   friend class DB;
   struct CompactionState;
   struct Writer;

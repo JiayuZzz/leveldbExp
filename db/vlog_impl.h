@@ -44,6 +44,7 @@ namespace leveldb {
         Status DeleteVlog(int vlogNum);
         // gc at least size space
         Status GarbageCollect(size_t size);
+        virtual Status SimplePut(const WriteOptions writeOptions, const std::string &key, const std::string &val);
     };
 }
 
