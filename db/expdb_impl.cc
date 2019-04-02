@@ -336,7 +336,7 @@ namespace leveldb {
             if (options_.numThreads == 1)
                 if (visited.find(vlogNum) == visited.end()) visited.insert(vlogNum);
 
-            readahead(fileno(f), (offset / 12288) * 12288, 12288);  // each file only readahead once
+            readahead(fileno(f), (offset / 8096) * 8096, 8096);  // each file only readahead once
 
             //readahead(fileno(f), (offset / 4096) * 4096, 4096);  // each file only readahead once
             size_t got = pread(fileno(f), value, valueSize, offset);
