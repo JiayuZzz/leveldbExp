@@ -102,7 +102,7 @@ namespace leveldb {
     size_t VlogDBImpl::Scan(const leveldb::ReadOptions readOptions, const std::string &start, size_t num,
                             std::vector<std::string> &keys, std::vector<std::string> &values) {
         uint64_t startMicro = NowMiros();
-        size_t i;
+        size_t i = 0, j = 0;
         if (keys.size() < num)
             keys.resize(num);
         if (values.size() < num)
@@ -112,19 +112,23 @@ namespace leveldb {
         // use index tree iter to get value info
         auto iter = indexDB_->NewIterator(readOptions);
         iter->Seek(start);
-
+        int sep = 8;
         //for main thread waiting
-        std::future<Status> s[num];
         uint64_t iterStart = NowMiros();
-        for (i = 0; i < num && iter->Valid(); i++) {
+        std::vector<std::future<Status>> retStatus;
+        for (; i < num && iter->Valid(); i++) {
             keys[i] = iter->key().ToString();
             valueInfos[i] = iter->value().ToString();
-            uint64_t assignTask = NowMiros();
-            s[i] = threadPool_->addTask(&VlogDBImpl::readValue,
-                                        this,
-                                        std::ref(valueInfos[i]),
-                                        &values[i]);
-            STATS::Time(STATS::GetInstance()->assignThread, assignTask, NowMiros());
+//                std::cerr<<"add task\n";
+            if ((i % (sep) == 0 && i != 0) || i == num - 1) {
+                uint64_t assignStart = NowMiros();
+                retStatus.emplace_back(
+                        threadPool_->addTask(
+                                &VlogDBImpl::ReadValuesForScan, this, std::ref(valueInfos), j, i, std::ref(values)));
+                STATS::Time(STATS::GetInstance()->assignThread, assignStart, NowMiros());
+                j = i;
+            }
+//                std::cerr<<"finish add\n";
             iter->Next();
             if (!iter->Valid()) std::cerr << "not valid\n";
         }
@@ -132,7 +136,7 @@ namespace leveldb {
         STATS::Time(STATS::GetInstance()->scanVlogIter, iterStart, NowMiros());
         // wait for all threads to complete
         uint64_t wait = NowMiros();
-        for (auto &fs:s) {
+        for (auto &fs:retStatus) {
             try {
                 fs.wait();
                 // if no that many keys
@@ -162,6 +166,30 @@ namespace leveldb {
             std::cerr << "get value error" << std::endl;
         }
         val->assign(value, valueSize);
+        return s;
+    }
+
+    Status VlogDBImpl::ReadValuesForScan(const std::vector<std::string> &valueInfos, int begin, int end,
+                                        std::vector<std::string> &vals) {
+        int vlogNum;
+        size_t offset;
+        size_t valueSize;
+        Status s;
+        for (int i = begin; i < end; i++) {
+            // get file number, offset and value size
+            parseValueInfo(valueInfos[i], vlogNum, offset, valueSize);
+
+            char value[valueSize];
+            FILE *f = OpenVlog(vlogNum);
+
+            size_t got = pread(fileno(f), value, valueSize, offset);
+            if (got != valueSize) {
+                s.IOError("get value error\n");
+                std::cerr << "get value error" << std::endl;
+            }
+            vals[i].assign(value, valueSize);
+            if (!s.ok()) return s;
+        }
         return s;
     }
 

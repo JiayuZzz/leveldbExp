@@ -37,6 +37,8 @@ namespace leveldb {
 
         // read value from vlog according to valueInfo read from index tree
         Status readValue(std::string &valueInfo, std::string *val);
+        Status ReadValuesForScan(const std::vector<std::string> &valueInfos, int begin, int end,
+                                             std::vector<std::string> &vals);
         FILE* OpenVlog(int vlogNum);
         size_t VlogSize(int vlogNum);
         void parseValueInfo(const std::string &valueInfo, int &vlogNum, size_t &offset, size_t &valueSize);
