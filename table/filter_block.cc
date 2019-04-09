@@ -6,6 +6,8 @@
 
 #include "leveldb/filter_policy.h"
 #include "util/coding.h"
+#include "leveldb/statistics.h"
+#include "leveldb/env.h"
 
 namespace leveldb {
 
@@ -50,6 +52,7 @@ Slice FilterBlockBuilder::Finish() {
 }
 
 void FilterBlockBuilder::GenerateFilter() {
+  uint64_t startMicro = NowMiros();
   const size_t num_keys = start_.size();
   if (num_keys == 0) {
     // Fast path if there are no keys for this filter
@@ -73,6 +76,7 @@ void FilterBlockBuilder::GenerateFilter() {
   tmp_keys_.clear();
   keys_.clear();
   start_.clear();
+  STATS::Time(STATS::GetInstance()->generateFilterTime, startMicro, NowMiros());
 }
 
 FilterBlockReader::FilterBlockReader(const FilterPolicy* policy,

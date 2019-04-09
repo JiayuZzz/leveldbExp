@@ -320,6 +320,7 @@ class PosixWritableFile : public WritableFile {
       return s;
     }
     s = FlushBuffered();
+    startSync = NowMiros();
     if (s.ok()) {
       if (fdatasync(fd_) != 0) {
         s = PosixError(filename_, errno);
@@ -337,17 +338,20 @@ class PosixWritableFile : public WritableFile {
   }
 
   Status WriteRaw(const char* p, size_t n) {
+    uint64_t startWrite = NowMiros();
     while (n > 0) {
       ssize_t r = write(fd_, p, n);
       if (r < 0) {
         if (errno == EINTR) {
           continue;  // Retry
         }
+        STATS::Time(STATS::GetInstance()->lsmIOTime,startWrite,NowMiros());
         return PosixError(filename_, errno);
       }
       p += r;
       n -= r;
     }
+    STATS::Time(STATS::GetInstance()->lsmIOTime,startWrite,NowMiros());
     return Status::OK();
   }
 };

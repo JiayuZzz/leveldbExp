@@ -1584,7 +1584,7 @@ Status DB::Open(const Options& options, const std::string& dbname,
     edit.SetLogNumber(impl->logfile_number_);
     s = impl->versions_->LogAndApply(&edit, &impl->mutex_);
   }
-  if (s.ok()) {
+  if (s.ok()&&!options.exp_ops.noCompaction) {
     impl->DeleteObsoleteFiles();
     impl->MaybeScheduleCompaction();
   }

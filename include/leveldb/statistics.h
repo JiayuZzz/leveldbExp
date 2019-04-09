@@ -50,6 +50,8 @@ namespace leveldb {
         uint64_t writeDiskSize;
         uint64_t vlogWriteDisk;
         uint64_t finishTable;
+        uint64_t lsmIOTime;
+        uint64_t generateFilterTime;
 
         static void TimeAndCount(statType &stat, uint64_t start, uint64_t end) {
             stat.first++;
@@ -97,11 +99,13 @@ namespace leveldb {
             printf("LSM-Tree compaction add to builder time: %.2f s\n", builderTime / 1000000);
             printf("LSM-Tree compaction iterator find next kv time: %.2f s\n",cNextTime / 1000000);
             printf("LSM-Tree add index block time: %.2f\n",addIndexBlock/1000000.0);
-            printf("LSM-Tree add filter time: %.2f\n",addFilter/1000000.0);
+            printf("LSM-Tree add key to filter builder time: %.2f\n",addFilter/1000000.0);
+            printf("LSM-Tree generate filter time: %.2f\n",generateFilterTime/1000000.0);
             printf("LSM-Tree add data time: %.2f\n",addData/1000000.0);
             printf("LSM-Tree flush table time: %.2f\n",flushTable/1000000.0);
             printf("LSM-Tree finish table time: %.2f\n",finishTable/1000000.0);
             printf("LSM-Tree write disk size: %.2fMB\n",writeDiskSize/1000000.0);
+            printf("LSM-Tree IO time: %.2f\n",lsmIOTime/1000000.0);
         }
 
         // print vlog/expdb read/write stats
