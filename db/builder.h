@@ -27,7 +27,8 @@ Status BuildTable(const std::string& dbname,
                   const Options& options,
                   TableCache* table_cache,
                   Iterator* iter,
-                  FileMetaData* meta);
+                  FileMetaData* meta,
+                  size_t& lastVtable);
 
 }  // namespace leveldb
 

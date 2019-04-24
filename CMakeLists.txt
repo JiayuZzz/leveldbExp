@@ -79,7 +79,7 @@ if(BUILD_SHARED_LIBS)
   add_compile_options(-fvisibility=hidden)
 endif(BUILD_SHARED_LIBS)
 
-add_library(leveldb "" include/leveldb/statistics.h include/leveldb/threadpool.h)
+add_library(leveldb "" include/leveldb/statistics.h include/leveldb/threadpool.h include/leveldb/vtable_builder.h table/vtable_builder.cc)
 target_sources(leveldb
   PRIVATE
     "${PROJECT_BINARY_DIR}/${LEVELDB_PORT_CONFIG_DIR}/port_config.h"
@@ -101,7 +101,6 @@ target_sources(leveldb
     "${PROJECT_SOURCE_DIR}/db/filename.h"
     "${PROJECT_SOURCE_DIR}/db/funcs.h"
     "${PROJECT_SOURCE_DIR}/db/funcs.cc"
-    "${PROJECT_SOURCE_DIR}/db/gctable.h"
     "${PROJECT_SOURCE_DIR}/db/log_format.h"
     "${PROJECT_SOURCE_DIR}/db/log_reader.cc"
     "${PROJECT_SOURCE_DIR}/db/log_reader.h"
@@ -137,6 +136,7 @@ target_sources(leveldb
     "${PROJECT_SOURCE_DIR}/table/merger.cc"
     "${PROJECT_SOURCE_DIR}/table/merger.h"
     "${PROJECT_SOURCE_DIR}/table/table_builder.cc"
+    "${PROJECT_SOURCE_DIR}/table/vtable_builder.cc"
     "${PROJECT_SOURCE_DIR}/table/table.cc"
     "${PROJECT_SOURCE_DIR}/table/two_level_iterator.cc"
     "${PROJECT_SOURCE_DIR}/table/two_level_iterator.h"
@@ -180,6 +180,7 @@ target_sources(leveldb
     "${LEVELDB_PUBLIC_INCLUDE_DIR}/statistics.h"
     "${LEVELDB_PUBLIC_INCLUDE_DIR}/vlog.h"
     "${LEVELDB_PUBLIC_INCLUDE_DIR}/expdb.h"
+    "${LEVELDB_PUBLIC_INCLUDE_DIR}/vtable_builder.h"
     "${LEVELDB_PUBLIC_INCLUDE_DIR}/threadpool.h"
 )
 
@@ -410,6 +411,7 @@ if(LEVELDB_INSTALL)
       "${PROJECT_SOURCE_DIR}/${LEVELDB_PUBLIC_INCLUDE_DIR}/write_batch.h"
       "${PROJECT_SOURCE_DIR}/${LEVELDB_PUBLIC_INCLUDE_DIR}/statistics.h"
       "${PROJECT_SOURCE_DIR}/${LEVELDB_PUBLIC_INCLUDE_DIR}/vlog.h"
+      "${PROJECT_SOURCE_DIR}/${LEVELDB_PUBLIC_INCLUDE_DIR}/vtable_builder.h"
       "${PROJECT_SOURCE_DIR}/${LEVELDB_PUBLIC_INCLUDE_DIR}/expdb.h"
       "${PROJECT_SOURCE_DIR}/${LEVELDB_PUBLIC_INCLUDE_DIR}/threadpool.h"
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/leveldb

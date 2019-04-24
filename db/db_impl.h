@@ -7,6 +7,8 @@
 
 #include <deque>
 #include <set>
+#include <unordered_map>
+#include <include/leveldb/threadpool.h>
 #include "db/dbformat.h"
 #include "db/log_writer.h"
 #include "db/snapshot.h"
@@ -14,7 +16,6 @@
 #include "leveldb/env.h"
 #include "port/port.h"
 #include "port/thread_annotations.h"
-#include "gctable.h"
 
 namespace leveldb {
 
@@ -199,6 +200,12 @@ class DBImpl : public DB {
   const Comparator* user_comparator() const {
     return internal_comparator_.user_comparator();
   }
+
+  /* selective kv */
+  size_t lastVtable_;
+  size_t lastVlog_;
+  std::unordered_map<uint64_t ,FILE*> openedFiles_;
+  ThreadPool threadPool_;
 };
 
 // Sanitize db options.  The caller should delete result.info_log if

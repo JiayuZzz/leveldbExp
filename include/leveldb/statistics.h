@@ -40,7 +40,6 @@ namespace leveldb {
         uint64_t compactionSync;
         uint64_t assignThread;
         uint64_t gcTime;
-        uint64_t gcTable;
         uint64_t gcPutBack;
         uint64_t gcReadLsm;
         uint64_t gcWritebackBytes;
@@ -121,7 +120,6 @@ namespace leveldb {
             double iterTime = scanVlogIter;
             double assign = assignThread;
             double gc = gcTime;
-            double gctable = gcTable;
             printf("Total vlogdb write time: %.2f s, count: %u, write latency: %.2f us\n", writeTime / 1000000,
                    writeCnt, writeTime / writeCnt);
             printf("Total vlogdb read time: %.2f s, count: %u, read latency: %.2f us\n", readTime / 1000000, readCnt,
@@ -131,7 +129,6 @@ namespace leveldb {
             printf("Vlog scan LSM-Tree iter time: %.2f s\n", iterTime / 1000000);
             printf("Assign vlog thread time: %.2f s\n", assign / 1000000);
             printf("Wait vlog scan threads finish time: %.2f s\n", (double) waitScanThreadsFinish / 1000000);
-            printf("Build gc table time: %.2f\n", gctable / 1000000);
             printf("Vlog gc time: %.2f s\n", (double) STATS::GetInstance()->gcTime / 1000000);
             printf("Read LSM time during gc: %.2f\n", (double) STATS::GetInstance()->gcReadLsm / 1000000);
             printf("Put back time during gc: %.2f\n", (double) STATS::GetInstance()->gcPutBack / 1000000);

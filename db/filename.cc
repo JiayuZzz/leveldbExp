@@ -34,6 +34,11 @@ std::string TableFileName(const std::string& dbname, uint64_t number) {
   return MakeFileName(dbname, number, "ldb");
 }
 
+std::string VtableFileName(const std::string& dbname, uint64_t number) {
+  assert(number>0);
+  return MakeFileName(dbname+"/values",number,"t");
+}
+
 std::string SSTTableFileName(const std::string& dbname, uint64_t number) {
   assert(number > 0);
   return MakeFileName(dbname, number, "sst");

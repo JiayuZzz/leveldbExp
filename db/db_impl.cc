@@ -11,6 +11,7 @@
 #include <set>
 #include <string>
 #include <vector>
+#include <zconf.h>
 
 #include "db/builder.h"
 #include "db/db_iter.h"
@@ -35,9 +36,6 @@
 #include "util/logging.h"
 #include "util/mutexlock.h"
 #include "leveldb/statistics.h"
-#include <map>
-
-leveldb::Gctable* gctable_ = new leveldb::Gctable();
 
 namespace leveldb {
 
@@ -150,8 +148,15 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname)
       background_compaction_scheduled_(false),
       manual_compaction_(nullptr),
       versions_(new VersionSet(dbname_, &options_, table_cache_,
-                               &internal_comparator_)) {
+                               &internal_comparator_)),
+      lastVlog_(0),
+      lastVtable_(0),
+      threadPool_(options_.exp_ops.numThreads),
+      openedFiles_() {
   has_imm_.Release_Store(nullptr);
+  if(access((dbname_+"/values").c_str(),F_OK)!=0&&options_.create_if_missing){
+    env_->CreateDir(dbname_+"/values");
+  }
 }
 
 DBImpl::~DBImpl() {
@@ -510,7 +515,7 @@ Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
   Status s;
   {
     mutex_.Unlock();
-    s = BuildTable(dbname_, env_, options_, table_cache_, iter, &meta);
+    s = BuildTable(dbname_, env_, options_, table_cache_, iter, &meta, lastVtable_);
     mutex_.Lock();
   }
 
@@ -928,8 +933,6 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   bool has_current_user_key = false;
   SequenceNumber last_sequence_for_key = kMaxSequenceNumber;
   uint64_t startIter = NowMiros();
-  // dropped key-offset for each vlog
-  std::map<int, std::pair<int,std::vector<int>>> dropped;
   for (; input->Valid() && !shutting_down_.Acquire_Load(); ) {
     // Prioritize immutable compaction work
     if (has_imm_.NoBarrier_Load() != nullptr) {
@@ -973,29 +976,6 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
       if (last_sequence_for_key <= compact->smallest_snapshot) {
         // Hidden by an newer entry for same user key
         drop = true;    // (A)
-        uint64_t starBuildGc = NowMiros();
-        std::string key = input->key().ToString();
-        key = key.substr(0,key.size()-8);
-        // Add dropped key to gctable
-        if(key!="nextVlogNum"&&key!="lastSequence") {
-            std::string val = input->value().ToString();
-            int vlogNum;
-            int offset;
-            int vSize;
-            sscanf(val.c_str(), "%d$%d$%d", &vlogNum, &offset, &vSize);
-            auto iter = dropped.find(vlogNum);
-            if (iter != dropped.end()) {
-                (*iter).second.first += (vSize + input->key().size());
-                (*iter).second.second.push_back(offset);
-            } else {
-                std::vector<int> tmp(1, offset);
-                std::pair<int, std::vector<int>> tmpP;
-                dropped.insert(std::pair<int, std::pair<int, std::vector<int>>>(vlogNum, tmpP));
-                dropped[vlogNum].first = vSize;
-                dropped[vlogNum].second = tmp;
-            }
-        }
-        STATS::Time(STATS::GetInstance()->gcTable,starBuildGc,NowMiros());
       } else if (ikey.type == kTypeDeletion &&
                  ikey.sequence <= compact->smallest_snapshot &&
                  compact->compaction->IsBaseLevelForKey(ikey.user_key)) {
@@ -1048,9 +1028,6 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
     int64_t startNext = NowMiros();
     input->Next();
     STATS::Time(STATS::GetInstance()->compactionFindNext,startNext,NowMiros());
-  }
-  for(auto & drop : dropped) {
-    gctable_->Add(drop.first,drop.second.first,drop.second.second);
   }
   STATS::Time(STATS::GetInstance()->compactionIterTime,startIter,NowMiros());
 
@@ -1201,7 +1178,7 @@ Status DBImpl::Get(const ReadOptions& options,
   if (imm != nullptr) imm->Unref();
   current->Unref();
   STATS::TimeAndCount(STATS::GetInstance()->readStat,startMicros,Env::Default()->NowMicros());
-  fprintf(rl,"%lu,",NowMiros()-startMicros);
+  //fprintf(rl,"%lu,",NowMiros()-startMicros);
   return s;
 }
 
@@ -1239,7 +1216,7 @@ Status DBImpl::Put(const WriteOptions& o, const Slice& key, const Slice& val) {
   uint64_t startMicros = NowMiros();
   Status s = DB::Put(o, key, val);
   STATS::TimeAndCount(STATS::GetInstance()->writeStat, startMicros, NowMiros());
-  fprintf(wl,"%lu,",NowMiros()-startMicros);
+  //fprintf(wl,"%lu,",NowMiros()-startMicros);
   return s;
 }
 

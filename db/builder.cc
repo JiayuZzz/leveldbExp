@@ -11,6 +11,7 @@
 #include "leveldb/db.h"
 #include "leveldb/env.h"
 #include "leveldb/iterator.h"
+#include "leveldb/vtable_builder.h"
 
 namespace leveldb {
 
@@ -19,34 +20,62 @@ Status BuildTable(const std::string& dbname,
                   const Options& options,
                   TableCache* table_cache,
                   Iterator* iter,
-                  FileMetaData* meta) {
+                  FileMetaData* meta,
+                  size_t& lastVtable) {
   Status s;
   meta->file_size = 0;
   iter->SeekToFirst();
 
   std::string fname = TableFileName(dbname, meta->number);
+  std::string vtablename = VtableFileName(dbname, lastVtable+1);
+
   if (iter->Valid()) {
     WritableFile* file;
+    FILE* vtable = fopen(vtablename.c_str(),"w");
     s = env->NewWritableFile(fname, &file);
     if (!s.ok()) {
       return s;
     }
 
     TableBuilder* builder = new TableBuilder(options, file);
+    VtableBuilder* vtableBuilder = new VtableBuilder(vtable);
     meta->smallest.DecodeFrom(iter->key());
     for (; iter->Valid(); iter->Next()) {
       Slice key = iter->key();
       meta->largest.DecodeFrom(key);
-      builder->Add(key, iter->value());
+      size_t valueSize = iter->value().size();
+      // small value?
+      if(valueSize<=options.exp_ops.smallThreshold){
+        builder->Add(key,iter->value());
+      } else {
+        Slice userKey = ExtractUserKey(key);
+        Slice value = iter->value();
+        size_t offset = vtableBuilder->Add(userKey, value);
+        // filename $ offset $ value size
+        Slice valueInfo = std::to_string(lastVtable+1)+"$"+std::to_string(offset)+"$"+std::to_string(value.size());
+        builder->Add(key, valueInfo);
+        // finish this vtable
+        if(offset>options.exp_ops.tableSize){
+          vtableBuilder->Finish();
+          lastVtable+=1;
+          vtablename = VtableFileName(dbname, lastVtable+1);
+          vtableBuilder->NextFile(fopen(vtablename.c_str(),"w"));
+        }
+      }
     }
 
     // Finish and check for builder errors
+    if(!vtableBuilder->Done()){
+      vtableBuilder->Finish();
+      lastVtable+=1;
+    }
     s = builder->Finish();
     if (s.ok()) {
       meta->file_size = builder->FileSize();
       assert(meta->file_size > 0);
     }
     delete builder;
+    delete vtableBuilder;
 
     // Finish and check for file errors
     if (s.ok()) {

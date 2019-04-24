@@ -9,9 +9,6 @@
 #include "db/memtable.h"
 #include "funcs.h"
 #include <fcntl.h>
-#include "gctable.h"
-
-extern leveldb::Gctable *gctable_;
 
 namespace leveldb {
 
@@ -547,48 +544,6 @@ namespace leveldb {
         vlogNum = std::stoi(vlogNumStr);
         offset = std::stoul(offsetStr);
         valueSize = std::stoul(valueSizeStr);
-    }
-
-    Status ExpDBImpl::GarbageCollect(size_t size) {
-        uint64_t startMicros = NowMiros();
-        size_t done = 0;
-        int keySize;
-        int valueSize;
-        size_t offset;
-        std::string valueInfo;
-        Status s;
-        while (!gctable_->IsEmpty()) {
-            // garbage stats of vlog which to be gc
-            Gcnode *n = gctable_->GetLast();
-            gctable_->DropLast();
-            done += n->gSize;
-            std::cerr << "gc " << n->gSize << " " << n->vlogNum << "\n";
-            FILE *gcVlog = OpenVlog(n->vlogNum);
-            fseek(gcVlog, 0, SEEK_SET);
-            auto iter = n->offsets.begin();
-            while (2 == fscanf(gcVlog, "%d$%d$", &keySize, &valueSize)) {
-                offset = ftell(gcVlog) + keySize;
-                if (iter == n->offsets.end() || offset != (*iter)) {
-                    //valid, write back
-                    char key[keySize];
-                    fread(key, keySize, 1, gcVlog);
-                    char value[valueSize];
-                    fread(value, valueSize, 1, gcVlog);
-                    uint64_t startPut = NowMiros();
-                    Put(leveldb::WriteOptions(), key, value);
-                    STATS::Time(STATS::GetInstance()->gcPutBack, startPut, NowMiros());
-                    STATS::Add(STATS::GetInstance()->gcWritebackBytes, valueSize);
-                } else {
-                    // drop
-                    fseek(gcVlog, valueSize + keySize, SEEK_CUR);
-                    iter++;
-                }
-            }
-            DeleteVlog(n->vlogNum);
-            if (done > size) break;
-        }
-        STATS::Time(STATS::GetInstance()->gcTime, startMicros, NowMiros());
-        return s;
     }
 
 //    Status ExpDBImpl::MergeVlog(const std::vector<int>& vlogs) {

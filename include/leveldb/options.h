@@ -6,6 +6,7 @@
 #define STORAGE_LEVELDB_INCLUDE_OPTIONS_H_
 
 #include <stddef.h>
+#include <cstdint>
 #include "leveldb/export.h"
 
 namespace leveldb {
@@ -36,9 +37,15 @@ struct LEVELDB_EXPORT Options {
         bool noCompaction;
         int sizeRatio;       // leveli+1 / leveli
         double baseLevelSize;
+        int numThreads;
+
+        // for selective kv
+        size_t tableSize;
+        size_t smallThreshold;
+        size_t mediumThreshold;
 
 
-        ExpOps():seekCompaction(true), directIO(false), sizeRatio(10), noCompaction(false),baseLevelSize(10.0*1024*1024){}
+        ExpOps():seekCompaction(true), directIO(false), sizeRatio(10), noCompaction(false),baseLevelSize(10.0*1024*1024),numThreads(8),smallThreshold(64),tableSize(4*1024*1024){}
     };
   // -------------------
   // Parameters that affect behavior

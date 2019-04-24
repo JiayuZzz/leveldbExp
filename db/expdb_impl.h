@@ -78,7 +78,7 @@ namespace leveldb {
                                  std::vector<std::string>& vals);
         void parseValueInfo(const std::string &valueInfo, int& vlogNum, size_t& offset, size_t& valueSize);
         void Recover();
-        Status GarbageCollect(size_t size);
+        Status GarbageCollect(size_t size){return Status();};
         Status DeleteVlog(int vlogNum);
         Status MergeVlog(const std::vector<int>& vlogs);
     };
