@@ -1396,24 +1396,24 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       // this delay hands over some CPU to the compaction thread in
       // case it is sharing the same core as the writer.
       mutex_.Unlock();
-      fprintf(wl,"-500");  //means slow down
       env_->SleepForMicroseconds(1000);
       allow_delay = false;  // Do not delay a single write more than once
       mutex_.Lock();
     } else if (!force &&
                (mem_->ApproximateMemoryUsage() <= options_.write_buffer_size)) {
+//        std::cerr<<mem_->ApproximateMemoryUsage()<<" "<<options_.write_buffer_size<<std::endl;
       // There is room in current memtable
       break;
     } else if (imm_ != nullptr) {
       // We have filled up the current memtable, but the previous
       // one is still being compacted, so we wait.
       Log(options_.info_log, "Current memtable full; waiting...\n");
-      fprintf(wl,"-1000,");   // means wait imm flush
+      uint64_t start_micro = NowMiros();
       background_work_finished_signal_.Wait();
+      STATS::Time(STATS::GetInstance()->waitFlush,start_micro,NowMiros());
     } else if (versions_->NumLevelFiles(0) >= config::kL0_StopWritesTrigger) {
       // There are too many level-0 files.
       Log(options_.info_log, "Too many L0 files; waiting...\n");
-      fprintf(wl,"-2000");   // means wait l0 compaction
       background_work_finished_signal_.Wait();
     } else {
       // Attempt to switch to a new memtable and trigger compaction of old

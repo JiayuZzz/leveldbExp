@@ -317,7 +317,6 @@ namespace leveldb {
         }
         STATS::TimeAndCount(STATS::GetInstance()->scanVlogStat, startMicros, NowMiros());
         numVisited += visited.size();
-        visited.clear();
         return i;
     }
 
@@ -333,8 +332,10 @@ namespace leveldb {
 
             char value[valueSize];
             FILE *f = OpenVlog(vlogNum);
+            /*
             if (options_.numThreads == 1)
                 if (visited.find(vlogNum) == visited.end()) visited.insert(vlogNum);
+                */
 
             //readahead(fileno(f), (offset / 8096) * 8096, 8096);  // each file only readahead once
 

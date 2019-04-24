@@ -217,7 +217,7 @@ namespace leveldb {
         std::string offsetStr = valueInfo.substr(offsetSep + 1, sizeSep - offsetSep - 1);
         std::string valueSizeStr = valueInfo.substr(sizeSep + 1, valueInfo.size() - sizeSep - 1);
         //TODO delete this line
-        if (options_.numThreads == 1) fwrite((offsetStr + ",").c_str(), offsetStr.size() + 1, 1, offsetsFile);
+        //if (options_.numThreads == 1) fwrite((offsetStr + ",").c_str(), offsetStr.size() + 1, 1, offsetsFile);
         vlogNum = std::stoi(vlogNumStr);
         offset = std::stoul(offsetStr);
         valueSize = std::stoul(valueSizeStr);
