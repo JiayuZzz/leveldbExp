@@ -204,8 +204,12 @@ class DBImpl : public DB {
   /* selective kv */
   size_t lastVtable_;
   size_t lastVlog_;
-  std::unordered_map<uint64_t ,FILE*> openedFiles_;
+  std::unordered_map<std::string ,FILE*> openedFiles_;
   ThreadPool threadPool_;
+
+  Status readValueWithAddress(std::string* valueInfo);
+  void parseValueInfo(const std::string& valueInfo, std::string& filename, size_t &offset, size_t &valueSize);
+  FILE* openValueFile(std::string& filename);
 };
 
 // Sanitize db options.  The caller should delete result.info_log if

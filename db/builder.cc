@@ -27,11 +27,12 @@ Status BuildTable(const std::string& dbname,
   iter->SeekToFirst();
 
   std::string fname = TableFileName(dbname, meta->number);
-  std::string vtablename = VtableFileName(dbname, lastVtable+1);
+  std::string vtablename = std::to_string(lastVtable+1)+"t";
+  std::string vtablepathname = dbname+"/values/"+vtablename;
 
   if (iter->Valid()) {
     WritableFile* file;
-    FILE* vtable = fopen(vtablename.c_str(),"w");
+    FILE* vtable = fopen(vtablepathname.c_str(),"w");
     s = env->NewWritableFile(fname, &file);
     if (!s.ok()) {
       return s;
@@ -52,14 +53,15 @@ Status BuildTable(const std::string& dbname,
         Slice value = iter->value();
         size_t offset = vtableBuilder->Add(userKey, value);
         // filename $ offset $ value size
-        Slice valueInfo = std::to_string(lastVtable+1)+"$"+std::to_string(offset)+"$"+std::to_string(value.size());
+        std::string valueInfo = vtablename +"$"+std::to_string(offset)+"$"+std::to_string(value.size());
         builder->Add(key, valueInfo);
         // finish this vtable
         if(offset>options.exp_ops.tableSize){
           vtableBuilder->Finish();
           lastVtable+=1;
-          vtablename = VtableFileName(dbname, lastVtable+1);
-          vtableBuilder->NextFile(fopen(vtablename.c_str(),"w"));
+          vtablename = std::to_string(lastVtable+1)+"t";
+          vtablepathname = dbname+"/values/"+vtablename;
+          vtableBuilder->NextFile(fopen(vtablepathname.c_str(),"w"));
         }
       }
     }

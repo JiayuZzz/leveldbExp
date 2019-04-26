@@ -1177,8 +1177,11 @@ Status DBImpl::Get(const ReadOptions& options,
   mem->Unref();
   if (imm != nullptr) imm->Unref();
   current->Unref();
+  //std::cerr<<*value<<std::endl;
+  if(s.ok()) readValueWithAddress(value);
   STATS::TimeAndCount(STATS::GetInstance()->readStat,startMicros,Env::Default()->NowMicros());
   //fprintf(rl,"%lu,",NowMiros()-startMicros);
+  //std::cerr<<*value<<std::endl;
   return s;
 }
 
@@ -1607,6 +1610,44 @@ Status DestroyDB(const std::string& dbname, const Options& options) {
     env->DeleteDir(dbname);  // Ignore error in case dir contains other files
   }
   return result;
+}
+
+/* selective */
+Status DBImpl::readValueWithAddress(std::string *valueInfo) {
+    Status s;
+    // get filename, offset and value size
+    std::string filename;
+    size_t offset;
+    size_t valueSize;
+    parseValueInfo(*valueInfo, filename, offset, valueSize);
+    //std::cerr<<filename<<" "<<offset<<" "<<valueSize<<"\n";
+
+    FILE *f = openValueFile(filename);
+    char value[valueSize+1];
+    size_t got = pread(fileno(f),value,valueSize,offset);
+    //std::cerr<<got<<std::endl;
+    if(got!=valueSize){
+        s.IOError("get value error\n");
+        std::cerr<<"get value error\n";
+    }
+    valueInfo->assign(value, valueSize);
+    return s;
+}
+
+void DBImpl::parseValueInfo(const std::string &valueInfo, std::string &filename, size_t &offset, size_t &valueSize) {
+  size_t offsetSep = valueInfo.find('$');
+  size_t sizeSep = valueInfo.rfind('$');
+  filename = valueInfo.substr(0, offsetSep);
+  offset = std::stoul(valueInfo.substr(offsetSep+1, sizeSep - offsetSep - 1));
+  valueSize = std::stoul(valueInfo.substr(sizeSep+1, valueInfo.size()-sizeSep-1));
+}
+
+FILE* DBImpl::openValueFile(std::string &filename) {
+  filename = dbname_+"/values/"+filename;
+  if(openedFiles_.find(filename)==openedFiles_.end()){
+    openedFiles_[filename] = fopen(filename.c_str(), "r");
+  }
+  return openedFiles_[filename];
 }
 
 }  // namespace leveldb

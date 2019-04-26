@@ -3,7 +3,9 @@
 //
 
 #include <iostream>
+#include <leveldb/env.h>
 #include "leveldb/vtable_builder.h"
+#include "leveldb/statistics.h"
 
 namespace leveldb {
     VtableBuilder::VtableBuilder(FILE *f):file(f),finished(false),pos(0) {
@@ -14,7 +16,9 @@ namespace leveldb {
     size_t VtableBuilder::Add(const leveldb::Slice &key, const leveldb::Slice &value) {
         size_t ret = pos+key.size()+1;
         pos = ret+value.size()+1;
+        uint64_t startMicro = NowMiros();
         buffer+=(key.ToString()+"$"+value.ToString()+"$");
+        STATS::Time(STATS::GetInstance()->vtableWriteBuffer,startMicro,NowMiros());
         return ret;
     }
 
