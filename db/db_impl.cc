@@ -1260,6 +1260,7 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
     // into mem_.
     {
       mutex_.Unlock();
+      uint64_t startLog = NowMiros();
       status = log_->AddRecord(WriteBatchInternal::Contents(updates));
       bool sync_error = false;
       if (status.ok() && options.sync) {
@@ -1268,6 +1269,7 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
           sync_error = true;
         }
       }
+      STATS::Time(STATS::GetInstance()->writeLog,startLog,NowMiros());
       uint64_t startMem = NowMiros();
       if (status.ok()) {
         status = WriteBatchInternal::InsertInto(updates, mem_);

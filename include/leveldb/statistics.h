@@ -29,6 +29,7 @@ namespace leveldb {
         statType readVlogStat;
         statType scanVlogStat;
         statType writeVlogStat;
+        uint64_t writeLog;
         uint64_t waitFlush;
         uint64_t scanVlogIter;
         uint64_t writeMemtable;
@@ -89,6 +90,7 @@ namespace leveldb {
                    writeTime / writeCnt);
             printf("LSM-Tree read time: %.2f s, count: %u, read latency: %.2f us\n", readTime / 1000000, readCnt,
                    readTime / readCnt);
+            printf("LSM-Tree write log time: %.2f s\n",writeLog/1000000.0);
             printf("LSM-Tree write memtable time: %.2f s\n", memTime / 1000000);
             printf("LSM-Tree wait imm flush time: %.2f s\n", waitFlush/1000000.0);
             for(int i = 0;i<readLevelStat.size();i++) {
