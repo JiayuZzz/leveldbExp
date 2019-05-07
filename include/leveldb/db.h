@@ -7,6 +7,7 @@
 
 #include <stdint.h>
 #include <stdio.h>
+#include <vector>
 #include "leveldb/export.h"
 #include "leveldb/iterator.h"
 #include "leveldb/options.h"
@@ -95,6 +96,10 @@ class LEVELDB_EXPORT DB {
   // Caller should delete the iterator when it is no longer needed.
   // The returned iterator should be deleted before this db is deleted.
   virtual Iterator* NewIterator(const ReadOptions& options) = 0;
+
+  // num is for ycsb test
+  virtual Status Scan(const leveldb::ReadOptions &options, const std::string &start, const std::string &end,
+                      std::vector<std::string> &keys, std::vector<std::string> &values, size_t num) = 0;
 
   // Return a handle to the current DB state.  Iterators created with
   // this handle will all observe a stable snapshot of the current DB

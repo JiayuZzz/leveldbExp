@@ -43,6 +43,8 @@ class DBImpl : public DB {
   virtual bool GetProperty(const Slice& property, std::string* value);
   virtual void GetApproximateSizes(const Range* range, int n, uint64_t* sizes);
   virtual void CompactRange(const Slice* begin, const Slice* end);
+  Status Scan(const leveldb::ReadOptions &options, const std::string &start, const std::string &end,
+              std::vector<std::string> &keys, std::vector<std::string> &values, size_t num);
 
   // Extra methods (for testing) that are not in the public DB interface
 
@@ -205,9 +207,9 @@ class DBImpl : public DB {
   size_t lastVtable_;
   size_t lastVlog_;
   std::unordered_map<std::string ,FILE*> openedFiles_;
-  ThreadPool threadPool_;
+  ThreadPool* threadPool_;
 
-  Status readValueWithAddress(std::string* valueInfo);
+  std::string readValueWithAddress(std::string valueInfo);
   void parseValueInfo(const std::string& valueInfo, std::string& filename, size_t &offset, size_t &valueSize);
   FILE* openValueFile(std::string& filename);
 };

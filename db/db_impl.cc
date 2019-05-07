@@ -151,12 +151,13 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname)
                                &internal_comparator_)),
       lastVlog_(0),
       lastVtable_(0),
-      threadPool_(options_.exp_ops.numThreads),
       openedFiles_() {
+  threadPool_ = new ThreadPool(options_.exp_ops.numThreads);
   has_imm_.Release_Store(nullptr);
   if(access((dbname_+"/values").c_str(),F_OK)!=0&&options_.create_if_missing){
     env_->CreateDir(dbname_+"/values");
   }
+  std::cerr<<"threads:"<<options_.exp_ops.numThreads<<std::endl;
 }
 
 DBImpl::~DBImpl() {
@@ -1178,7 +1179,7 @@ Status DBImpl::Get(const ReadOptions& options,
   if (imm != nullptr) imm->Unref();
   current->Unref();
   //std::cerr<<*value<<std::endl;
-  if(s.ok()) readValueWithAddress(value);
+  if(s.ok()) *value = readValueWithAddress(*value);
   STATS::TimeAndCount(STATS::GetInstance()->readStat,startMicros,Env::Default()->NowMicros());
   //fprintf(rl,"%lu,",NowMiros()-startMicros);
   //std::cerr<<*value<<std::endl;
@@ -1613,16 +1614,19 @@ Status DestroyDB(const std::string& dbname, const Options& options) {
 }
 
 /* selective */
-Status DBImpl::readValueWithAddress(std::string *valueInfo) {
+std::string DBImpl::readValueWithAddress(std::string valueInfo) {
+    //std::cerr<<"*read value "<<valueInfo<<std::endl;
     Status s;
     // get filename, offset and value size
     std::string filename;
     size_t offset;
     size_t valueSize;
-    parseValueInfo(*valueInfo, filename, offset, valueSize);
-    //std::cerr<<filename<<" "<<offset<<" "<<valueSize<<"\n";
-
-    FILE *f = openValueFile(filename);
+    parseValueInfo(valueInfo, filename, offset, valueSize);
+    //FILE *f = openValueFile(filename);
+    //std::cerr<<"#"+dbname_+"/values/"+filename<<std::endl;
+    FILE* f = fopen((dbname_+"/values/"+filename).c_str(),"r");
+    if(!f) std::cerr<<"open error\n";
+    //std::cerr<<"open done\n";
     char value[valueSize+1];
     size_t got = pread(fileno(f),value,valueSize,offset);
     //std::cerr<<got<<std::endl;
@@ -1630,8 +1634,9 @@ Status DBImpl::readValueWithAddress(std::string *valueInfo) {
         s.IOError("get value error\n");
         std::cerr<<"get value error\n";
     }
-    valueInfo->assign(value, valueSize);
-    return s;
+    //std::cerr<<std::string(value)<<std::endl;
+    fclose(f);
+    return std::string(value);
 }
 
 void DBImpl::parseValueInfo(const std::string &valueInfo, std::string &filename, size_t &offset, size_t &valueSize) {
@@ -1640,6 +1645,7 @@ void DBImpl::parseValueInfo(const std::string &valueInfo, std::string &filename,
   filename = valueInfo.substr(0, offsetSep);
   offset = std::stoul(valueInfo.substr(offsetSep+1, sizeSep - offsetSep - 1));
   valueSize = std::stoul(valueInfo.substr(sizeSep+1, valueInfo.size()-sizeSep-1));
+  //std::cerr<<"######filename : "<<filename<<std::endl;
 }
 
 FILE* DBImpl::openValueFile(std::string &filename) {
@@ -1647,7 +1653,41 @@ FILE* DBImpl::openValueFile(std::string &filename) {
   if(openedFiles_.find(filename)==openedFiles_.end()){
     openedFiles_[filename] = fopen(filename.c_str(), "r");
   }
-  return openedFiles_[filename];
+    return openedFiles_[filename];
+}
+
+Status DBImpl::Scan(const leveldb::ReadOptions &options, const std::string &start, const std::string &end,
+                    std::vector<std::string> &keys, std::vector<std::string> &values, size_t num) {
+    //std::cerr<<"scan\n";
+    auto iter = NewIterator(options);
+    iter->Seek(start);
+    std::vector<std::future<std::string>> retValues;
+    size_t cnt = 0;
+    uint64_t iterStart = NowMiros();
+    while(iter->Valid()&&cnt<num){
+        //std::cerr<<"iter\n";
+        keys.push_back(iter->key().ToString());
+        //std::string valueInfo = iter->value().ToString();
+        uint64_t assignStart = NowMiros();
+        retValues.emplace_back(threadPool_->addTask(
+                &DBImpl::readValueWithAddress, this, iter->value().ToString())
+                );
+        STATS::Time(STATS::GetInstance()->assignThread, assignStart, NowMiros());
+        cnt++;
+        //std::cerr<<"thread\n";
+        iter->Next();
+    }
+    STATS::Time(STATS::GetInstance()->scanVlogIter, iterStart, NowMiros());
+    delete(iter);
+    values.resize(retValues.size());
+    auto viter = values.begin();
+    uint64_t wait = NowMiros();
+    for(auto &ret:retValues){
+        *viter = ret.get();
+        viter++;
+    }
+    STATS::Time(STATS::GetInstance()->waitScanThreadsFinish, wait, NowMiros());
+    return Status();
 }
 
 }  // namespace leveldb

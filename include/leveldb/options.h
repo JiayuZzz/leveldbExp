@@ -45,7 +45,7 @@ struct LEVELDB_EXPORT Options {
         size_t mediumThreshold;
 
 
-        ExpOps():seekCompaction(true), directIO(false), sizeRatio(10), noCompaction(false),baseLevelSize(10.0*1024*1024),numThreads(8),smallThreshold(64),tableSize(4*1024*1024){}
+        ExpOps():seekCompaction(true), directIO(false), sizeRatio(10), noCompaction(false),baseLevelSize(10.0*1024*1024),numThreads(1),smallThreshold(64),tableSize(4*1024*1024){}
     };
   // -------------------
   // Parameters that affect behavior

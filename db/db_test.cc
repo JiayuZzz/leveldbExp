@@ -2066,6 +2066,11 @@ class ModelDB: public DB {
     return false;
   }
 
+  virtual Status Scan(const leveldb::ReadOptions &options, const std::string &start, const std::string &end,
+                      std::vector<std::string> &keys, std::vector<std::string> &values, size_t num){
+      return Status();
+  }
+
 
   virtual void GetApproximateSizes(const Range* r, int n, uint64_t* sizes) {
     for (int i = 0; i < n; i++) {
