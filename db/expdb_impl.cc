@@ -42,7 +42,7 @@ namespace leveldb {
               tmp_batch_(new WriteBatch) {
         nextVlogNum_ = 0;
         visited = std::set<int>();
-        openedVlog_ = std::vector<FILE *>(options_.numOpenfile);
+        openedVlog_ = std::unordered_map<int, FILE*>();
         mem_ = new MemTable(internal_comparator_);
         mem_->Ref();
         has_imm_.Release_Store(nullptr);
@@ -72,8 +72,8 @@ namespace leveldb {
         mutex_.Unlock();
         if (mem_ != nullptr) mem_->Unref();
         if (imm_ != nullptr) imm_->Unref();
-        for (FILE *f:openedVlog_) {
-            if (f) fclose(f);
+        for (auto item:openedVlog_) {
+            if (item.second) fclose(item.second);
         }
         delete indexDB_;
         delete threadPool_;
@@ -506,11 +506,13 @@ namespace leveldb {
 
     FILE *ExpDBImpl::OpenVlog(int vlogNum) {
         std::string filename = vlogDir_ + "/" + std::to_string(vlogNum);
-        assert(vlogNum <= options_.numOpenfile);
-        if (openedVlog_[vlogNum] == nullptr) {
+        fileMutex_.Lock();
+        if (openedVlog_.find(vlogNum)==openedVlog_.end()) {
             openedVlog_[vlogNum] = fopen(filename.c_str(), "a+");
         }
-        return openedVlog_[vlogNum];
+        FILE* f = openedVlog_[vlogNum];
+        fileMutex_.Unlock();
+        return f;
     }
 
     FILE* ExpDBImpl::NewVlog() {

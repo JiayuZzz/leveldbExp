@@ -14,6 +14,7 @@
 #include <port/port.h>
 #include "db/dbformat.h"
 #include <set>
+#include <unordered_map>
 
 
 namespace leveldb {
@@ -51,12 +52,14 @@ namespace leveldb {
         const std::string vlogDir_;
         Env* env_;
         port::Mutex mutex_;
+        port::Mutex fileMutex_;
         std::deque<Writer*> writers_ GUARDED_BY(mutex_);
         WriteBatch* tmp_batch_ GUARDED_BY(mutex_);
         port::CondVar background_work_finished_signal_ GUARDED_BY(mutex_);
         std::atomic<int> nextVlogNum_;
         bool background_compaction_scheduled_;
-        std::vector<FILE*> openedVlog_;
+        //std::vector<FILE*> openedVlog_;
+        std::unordered_map<int, FILE*> openedVlog_;
         uint64_t lastSequence_;
         //for record read average files read during scan
         std::set<int> visited;
