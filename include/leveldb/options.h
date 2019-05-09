@@ -197,10 +197,12 @@ struct LEVELDB_EXPORT ReadOptions {
   // Default: nullptr
   const Snapshot* snapshot;
 
-  ReadOptions()
+  bool value_pos;  // only get value position in value file
+
+  ReadOptions(bool vp = false)
       : verify_checksums(false),
         fill_cache(true),
-        snapshot(nullptr) {
+        snapshot(nullptr),value_pos(vp) {
   }
 };
 

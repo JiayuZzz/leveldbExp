@@ -137,6 +137,8 @@ target_sources(leveldb
     "${PROJECT_SOURCE_DIR}/table/merger.h"
     "${PROJECT_SOURCE_DIR}/table/table_builder.cc"
     "${PROJECT_SOURCE_DIR}/table/vtable_builder.cc"
+    "${PROJECT_SOURCE_DIR}/table/value_iter.h"
+    "${PROJECT_SOURCE_DIR}/table/value_iter.cc"
     "${PROJECT_SOURCE_DIR}/table/table.cc"
     "${PROJECT_SOURCE_DIR}/table/two_level_iterator.cc"
     "${PROJECT_SOURCE_DIR}/table/two_level_iterator.h"

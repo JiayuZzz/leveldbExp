@@ -72,6 +72,7 @@ class DBImpl : public DB {
   friend class DB;
   struct CompactionState;
   struct Writer;
+  friend class ValueIterator;
 
   Iterator* NewInternalIterator(const ReadOptions&,
                                 SequenceNumber* latest_snapshot,
@@ -208,10 +209,12 @@ class DBImpl : public DB {
   size_t lastVlog_;
   std::unordered_map<std::string ,FILE*> openedFiles_;
   ThreadPool* threadPool_;
+  std::set<std::string> toGC;
 
   std::string readValueWithAddress(std::string valueInfo);
   void parseValueInfo(const std::string& valueInfo, std::string& filename, size_t &offset, size_t &valueSize);
   FILE* openValueFile(std::string& filename);
+  void GarbageCollect();
 };
 
 // Sanitize db options.  The caller should delete result.info_log if

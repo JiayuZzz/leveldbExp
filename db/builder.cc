@@ -27,7 +27,7 @@ Status BuildTable(const std::string& dbname,
   iter->SeekToFirst();
 
   std::string fname = TableFileName(dbname, meta->number);
-  std::string vtablename = std::to_string(lastVtable+1)+"t";
+  std::string vtablename = "t" + std::to_string(lastVtable+1);
   std::string vtablepathname = dbname+"/values/"+vtablename;
 
   if (iter->Valid()) {
@@ -59,7 +59,7 @@ Status BuildTable(const std::string& dbname,
         if(offset>options.exp_ops.tableSize){
           vtableBuilder->Finish();
           lastVtable+=1;
-          vtablename = std::to_string(lastVtable+1)+"t";
+          vtablename = "t" + std::to_string(lastVtable+1);
           vtablepathname = dbname+"/values/"+vtablename;
           vtableBuilder->NextFile(fopen(vtablepathname.c_str(),"w"));
         }

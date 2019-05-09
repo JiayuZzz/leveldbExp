@@ -1179,7 +1179,11 @@ Status DBImpl::Get(const ReadOptions& options,
   if (imm != nullptr) imm->Unref();
   current->Unref();
   //std::cerr<<*value<<std::endl;
-  if(s.ok()) *value = readValueWithAddress(*value);
+  if (s.ok()) {
+    if (!options.value_pos) {
+      *value = readValueWithAddress(*value);
+    }
+  }
   STATS::TimeAndCount(STATS::GetInstance()->readStat,startMicros,Env::Default()->NowMicros());
   //fprintf(rl,"%lu,",NowMiros()-startMicros);
   //std::cerr<<*value<<std::endl;
@@ -1644,9 +1648,9 @@ std::string DBImpl::readValueWithAddress(std::string valueInfo) {
 void DBImpl::parseValueInfo(const std::string &valueInfo, std::string &filename, size_t &offset, size_t &valueSize) {
   size_t offsetSep = valueInfo.find('$');
   size_t sizeSep = valueInfo.rfind('$');
-  filename = valueInfo.substr(0, offsetSep);
   offset = std::stoul(valueInfo.substr(offsetSep+1, sizeSep - offsetSep - 1));
   valueSize = std::stoul(valueInfo.substr(sizeSep+1, valueInfo.size()-sizeSep-1));
+  filename = valueInfo.substr(0, offsetSep);
   //std::cerr<<"######filename : "<<filename<<std::endl;
 }
 
@@ -1691,5 +1695,7 @@ Status DBImpl::Scan(const leveldb::ReadOptions &options, const std::string &star
     STATS::Time(STATS::GetInstance()->waitScanThreadsFinish, wait, NowMiros());
     return Status();
 }
+
+void DBImpl::GarbageCollect() {}
 
 }  // namespace leveldb
