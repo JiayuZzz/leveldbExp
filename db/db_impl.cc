@@ -1628,9 +1628,10 @@ std::string DBImpl::readValueWithAddress(std::string valueInfo) {
     size_t offset;
     size_t valueSize;
     parseValueInfo(valueInfo, filename, offset, valueSize);
-    //FILE *f = openValueFile(filename);
+    FILE *f = openValueFile(filename);
+    if(!f) return "";
     //std::cerr<<"#"+dbname_+"/values/"+filename<<std::endl;
-    FILE* f = fopen((dbname_+"/values/"+filename).c_str(),"r");
+    //FILE* f = fopen((dbname_+"/values/"+filename).c_str(),"r");
     if(!f) std::cerr<<"open error\n";
     //std::cerr<<"open done\n";
     char value[valueSize+1];
@@ -1641,7 +1642,7 @@ std::string DBImpl::readValueWithAddress(std::string valueInfo) {
         std::cerr<<"get value error\n";
     }
     //std::cerr<<std::string(value)<<std::endl;
-    fclose(f);
+    //fclose(f);
     return std::string(value);
 }
 
@@ -1655,11 +1656,14 @@ void DBImpl::parseValueInfo(const std::string &valueInfo, std::string &filename,
 }
 
 FILE* DBImpl::openValueFile(std::string &filename) {
-  filename = dbname_+"/values/"+filename;
+  fileMutex_.Lock();
+  //std::cerr<<"open "<<dbname_+"/values/"+filename<<std::endl;
   if(openedFiles_.find(filename)==openedFiles_.end()){
-    openedFiles_[filename] = fopen(filename.c_str(), "r");
+    openedFiles_[filename] = fopen((dbname_+"/values/"+filename).c_str(), "r");
   }
-    return openedFiles_[filename];
+  FILE* f = openedFiles_[filename];
+  fileMutex_.Unlock();
+  return f;
 }
 
 Status DBImpl::Scan(const leveldb::ReadOptions &options, const std::string &start, const std::string &end,

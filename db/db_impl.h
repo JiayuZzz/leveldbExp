@@ -208,6 +208,7 @@ class DBImpl : public DB {
   size_t lastVtable_;
   size_t lastVlog_;
   std::unordered_map<std::string ,FILE*> openedFiles_;
+  port::Mutex fileMutex_;   // protect opened files
   ThreadPool* threadPool_;
   std::set<std::string> toGC;
 
