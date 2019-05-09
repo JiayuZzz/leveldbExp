@@ -16,6 +16,7 @@
 #include "leveldb/env.h"
 #include "port/port.h"
 #include "port/thread_annotations.h"
+#include "unordered_set"
 
 namespace leveldb {
 
@@ -72,7 +73,6 @@ class DBImpl : public DB {
   friend class DB;
   struct CompactionState;
   struct Writer;
-  friend class ValueIterator;
 
   Iterator* NewInternalIterator(const ReadOptions&,
                                 SequenceNumber* latest_snapshot,
@@ -205,12 +205,20 @@ class DBImpl : public DB {
   }
 
   /* selective kv */
+  struct VfileMeta {
+    double garbageR;   //garbage ratio;
+
+    VfileMeta(double g):garbageR(g){}
+    VfileMeta():garbageR(0){}
+  };
   size_t lastVtable_;
   size_t lastVlog_;
   std::unordered_map<std::string ,FILE*> openedFiles_;
   port::Mutex fileMutex_;   // protect opened files
   ThreadPool* threadPool_;
-  std::set<std::string> toGC;
+  std::unordered_set<std::string>* toGC_;
+  std::unordered_set<std::string>* inGC_;
+  std::unordered_map<std::string ,VfileMeta> metaTable_;
 
   std::string readValueWithAddress(std::string valueInfo);
   void parseValueInfo(const std::string& valueInfo, std::string& filename, size_t &offset, size_t &valueSize);

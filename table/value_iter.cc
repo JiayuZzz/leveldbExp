@@ -9,7 +9,7 @@ namespace leveldb {
         f.open(valueFile);
     }
 
-    bool ValueIterator::Valid() {
+    bool ValueIterator::Valid() const {
         return !key_.empty();
     }
 

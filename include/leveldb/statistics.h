@@ -44,6 +44,7 @@ namespace leveldb {
         uint64_t gcPutBack;
         uint64_t gcReadLsm;
         uint64_t gcWritebackBytes;
+        uint64_t gcSize;
         uint64_t addIndexBlock;
         uint64_t addFilter;
         uint64_t addData;
@@ -134,6 +135,7 @@ namespace leveldb {
             printf("Assign vlog thread time: %.2f s\n", assign / 1000000);
             printf("Wait vlog scan threads finish time: %.2f s\n", (double) waitScanThreadsFinish / 1000000);
             printf("Vlog gc time: %.2f s\n", (double) STATS::GetInstance()->gcTime / 1000000);
+            printf("gc reclaimed size: %u, gc write back size: %u\n",gcSize, gcWritebackBytes);
             printf("Read LSM time during gc: %.2f\n", (double) STATS::GetInstance()->gcReadLsm / 1000000);
             printf("Put back time during gc: %.2f\n", (double) STATS::GetInstance()->gcPutBack / 1000000);
             printf("Write back to vlog bytes during gc: %lu\n", gcWritebackBytes);

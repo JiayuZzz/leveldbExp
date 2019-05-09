@@ -36,6 +36,8 @@
 #include "util/logging.h"
 #include "util/mutexlock.h"
 #include "leveldb/statistics.h"
+#include "sstream"
+#include "table/value_iter.h"
 
 namespace leveldb {
 
@@ -151,7 +153,7 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname)
                                &internal_comparator_)),
       lastVlog_(0),
       lastVtable_(0),
-      openedFiles_() {
+      openedFiles_(), toGC_(new std::unordered_set<std::string>()) {
   threadPool_ = new ThreadPool(options_.exp_ops.numThreads);
   has_imm_.Release_Store(nullptr);
   if(access((dbname_+"/values").c_str(),F_OK)!=0&&options_.create_if_missing){
@@ -977,6 +979,19 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
       if (last_sequence_for_key <= compact->smallest_snapshot) {
         // Hidden by an newer entry for same user key
         drop = true;    // (A)
+
+        // update vfile meta
+        std::string filename;
+        std::string size;
+        std::stringstream ss(input->value().ToString());
+        std::getline(ss,filename,'$');
+        std::getline(ss,size,'$');
+        if(metaTable_.find(filename)==metaTable_.end()) metaTable_[filename] = VfileMeta(std::stod(size)/options_.exp_ops.tableSize);
+        else metaTable_[filename].garbageR+=std::stod(size)/options_.exp_ops.tableSize;
+        // TODO optimize
+        if(metaTable_[filename].garbageR>options_.exp_ops.gcRatio && toGC_->find(filename)==toGC_->end()&&(!inGC_||inGC_->find(filename)==inGC_->end())) {
+            toGC_->insert(filename);
+        }
       } else if (ikey.type == kTypeDeletion &&
                  ikey.sequence <= compact->smallest_snapshot &&
                  compact->compaction->IsBaseLevelForKey(ikey.user_key)) {
@@ -1067,6 +1082,13 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   VersionSet::LevelSummaryStorage tmp;
   Log(options_.info_log,
       "compacted to: %s", versions_->LevelSummary(&tmp));
+  std::cerr<<"trigger gc?\n";
+  if(toGC_->size()>=options_.exp_ops.numFileGC&&inGC_==nullptr) {
+    std::cerr<<"trigger gc for "<<toGC_->size()<<"files\n";
+    inGC_ = toGC_;
+    toGC_ = new std::unordered_set<std::string>();
+    threadPool_->addTask(&DBImpl::GarbageCollect, this);
+  }
   return status;
 }
 
@@ -1659,7 +1681,7 @@ FILE* DBImpl::openValueFile(std::string &filename) {
   fileMutex_.Lock();
   //std::cerr<<"open "<<dbname_+"/values/"+filename<<std::endl;
   if(openedFiles_.find(filename)==openedFiles_.end()){
-    openedFiles_[filename] = fopen((dbname_+"/values/"+filename).c_str(), "r");
+    openedFiles_[filename] = fopen((dbname_+"/values/"+filename).c_str(), "w+");
   }
   FILE* f = openedFiles_[filename];
   fileMutex_.Unlock();
@@ -1700,6 +1722,36 @@ Status DBImpl::Scan(const leveldb::ReadOptions &options, const std::string &star
     return Status();
 }
 
-void DBImpl::GarbageCollect() {}
+void DBImpl::GarbageCollect() {
+    std::cerr<<"start gc "<<inGC_->size()<<std::endl;
+    uint64_t startMicros = NowMiros();
+    uint64_t gcWriteBack = 0;
+    uint64_t gcSize = 0;
+    // TODO: optimize, use new filename
+    for(std::string filename:(*inGC_)){
+      gcSize+=options_.exp_ops.tableSize;
+      //std::cerr<<"gc open file\n";
+      FILE* f = openValueFile(filename);
+      fseek(f,0,SEEK_SET);
+      Iterator* iter = new ValueIterator(filename);
+      //std::cerr<<"gc get iter\n";
+      iter->SeekToFirst();
+      while(iter->Valid()){
+        size_t ksize = iter->key().size();
+        size_t vsize = iter->value().size();
+        std::cerr<<"gc write back\n";
+        fwrite((iter->key().ToString()+"$"+iter->value().ToString()+"$").c_str(),ksize+vsize+2,1,f);
+        Put(leveldb::WriteOptions(),iter->key(),filename+"$"+std::to_string(ftell(f)-1-vsize)+"$"+std::to_string(vsize));
+        iter->Next();
+        gcWriteBack+=vsize+ksize;
+      }
+      metaTable_.erase(filename);
+    }
+    delete inGC_;
+    inGC_ = nullptr;
+    STATS::Add(STATS::GetInstance()->gcWritebackBytes,gcWriteBack);
+    STATS::Add(STATS::GetInstance()->gcSize,gcSize-gcWriteBack);
+    STATS::Time(STATS::GetInstance()->gcTime,startMicros,NowMiros());
+}
 
 }  // namespace leveldb

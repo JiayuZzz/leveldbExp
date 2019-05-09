@@ -16,15 +16,16 @@ namespace leveldb {
     public:
         ValueIterator(const std::string& valueFile);
 
-        virtual ~ValueIterator();
 
-        virtual bool Valid();
+        virtual ~ValueIterator(){};
+
+        virtual bool Valid() const ;
 
         virtual void SeekToFirst();
 
         virtual void SeekToLast();
 
-        virtual void Seek(const Slice& target);
+        virtual void Seek(const Slice& target){};
 
         virtual void Next();
 
@@ -34,7 +35,7 @@ namespace leveldb {
 
         virtual Slice value() const;
 
-        virtual Status status();
+        virtual Status status() const {return Status();};
 
     private:
         std::fstream f;

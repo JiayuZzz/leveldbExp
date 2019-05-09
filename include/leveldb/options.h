@@ -38,6 +38,8 @@ struct LEVELDB_EXPORT Options {
         int sizeRatio;       // leveli+1 / leveli
         double baseLevelSize;
         int numThreads;
+        double gcRatio;      // garbage ratio of valuefile to trigger gc
+        int numFileGC;       // least number of vfile to trigger gc
 
         // for selective kv
         size_t tableSize;
@@ -45,7 +47,9 @@ struct LEVELDB_EXPORT Options {
         size_t mediumThreshold;
 
 
-        ExpOps():seekCompaction(true), directIO(false), sizeRatio(10), noCompaction(false),baseLevelSize(10.0*1024*1024),numThreads(1),smallThreshold(64),tableSize(4*1024*1024){}
+        ExpOps():seekCompaction(true), directIO(false), sizeRatio(10), noCompaction(false),
+                 baseLevelSize(10.0*1024*1024),numThreads(1),smallThreshold(64),
+                 tableSize(4*1024*1024),gcRatio(0.4),numFileGC(10){}
     };
   // -------------------
   // Parameters that affect behavior
