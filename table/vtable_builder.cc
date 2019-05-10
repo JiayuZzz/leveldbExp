@@ -6,9 +6,10 @@
 #include <leveldb/env.h>
 #include "leveldb/vtable_builder.h"
 #include "leveldb/statistics.h"
+#include "db/funcs.h"
 
 namespace leveldb {
-    VtableBuilder::VtableBuilder(FILE *f):file(f),finished(false),pos(0) {
+    VtableBuilder::VtableBuilder(const std::string& filepath):file(fopen(filepath.c_str(),"w")),finished(false),pos(0) {
     }
 
     VtableBuilder::~VtableBuilder() {}
@@ -17,7 +18,7 @@ namespace leveldb {
         size_t ret = pos+key.size()+1;
         pos = ret+value.size()+1;
         uint64_t startMicro = NowMiros();
-        buffer+=(key.ToString()+"$"+value.ToString()+"$");
+        buffer+=conbineKVPair(key.ToString(),value.ToString());
         STATS::Time(STATS::GetInstance()->vtableWriteBuffer,startMicro,NowMiros());
         return ret;
     }
@@ -31,8 +32,8 @@ namespace leveldb {
         return write==buffer.size()?Status():Status::IOError("Write Vtalbe Error");
     }
 
-    void VtableBuilder::NextFile(FILE *f) {
-        file = f;
+    void VtableBuilder::NextFile(const std::string& filepath) {
+        file = fopen(filepath.c_str(),"w");
         finished = false;
     }
 

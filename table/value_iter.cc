@@ -5,7 +5,7 @@
 #include "value_iter.h"
 
 namespace leveldb {
-    ValueIterator::ValueIterator(const std::string &valueFile):key_(""),value_("") {
+    ValueIterator::ValueIterator(const std::string &valueFile, DB* db):key_(""),value_(""),db_(db),filename_(valueFile) {
         f.open(valueFile);
     }
 
@@ -33,7 +33,10 @@ namespace leveldb {
             size_t offset, size;
             db_->Get(leveldb::ReadOptions(true),key_,&valueInfo);
             parseValueInfo(valueInfo,filename,offset,size);
+            std::cerr<<"key "<<key_<<" value info "<<valueInfo<<" filename "<<filename<<" offset "<<offset<<std::endl;
+            std::cerr<<"here filename "<<filename_<<" offset "<<f.tellg()<<std::endl;
             if(filename==filename_&&offset==f.tellg()){
+                std::cerr<<"valid value"<<std::endl;
                 getline(f, value_, '$');
                 return;
             } else {

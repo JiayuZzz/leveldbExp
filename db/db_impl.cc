@@ -38,6 +38,7 @@
 #include "leveldb/statistics.h"
 #include "sstream"
 #include "table/value_iter.h"
+#include "funcs.h"
 
 namespace leveldb {
 
@@ -153,7 +154,7 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname)
                                &internal_comparator_)),
       lastVlog_(0),
       lastVtable_(0),
-      openedFiles_(), toGC_(new std::unordered_set<std::string>()) {
+      openedFiles_(), toGC_(new std::unordered_set<std::string>()),writingVlog_(fopen(valueFileName("l"+std::to_string(lastVlog_)).c_str(),"a")) {
   threadPool_ = new ThreadPool(options_.exp_ops.numThreads);
   has_imm_.Release_Store(nullptr);
   if(access((dbname_+"/values").c_str(),F_OK)!=0&&options_.create_if_missing){
@@ -1082,9 +1083,9 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   VersionSet::LevelSummaryStorage tmp;
   Log(options_.info_log,
       "compacted to: %s", versions_->LevelSummary(&tmp));
-  std::cerr<<"trigger gc?\n";
+  std::cerr<<"trigger gc?"<<std::endl;
   if(toGC_->size()>=options_.exp_ops.numFileGC&&inGC_==nullptr) {
-    std::cerr<<"trigger gc for "<<toGC_->size()<<"files\n";
+    std::cerr<<"trigger gc for "<<toGC_->size()<<"files"<<std::endl;
     inGC_ = toGC_;
     toGC_ = new std::unordered_set<std::string>();
     threadPool_->addTask(&DBImpl::GarbageCollect, this);
@@ -1244,7 +1245,15 @@ void DBImpl::ReleaseSnapshot(const Snapshot* snapshot) {
 // Convenience methods
 Status DBImpl::Put(const WriteOptions& o, const Slice& key, const Slice& val) {
   uint64_t startMicros = NowMiros();
-  Status s = DB::Put(o, key, val);
+  Status s;
+  if(val.size()>=options_.exp_ops.mediumThreshold){
+    std::string filename = "l"+std::to_string(lastVlog_);
+    size_t offset = writeVlog(key.ToString(), val.ToString());
+    std::string valueInfo = conbineValueInfo(filename,offset,val.size());
+    s = DB::Put(o, key, valueInfo);
+  } else {
+    s = DB::Put(o, key, val);
+  }
   STATS::TimeAndCount(STATS::GetInstance()->writeStat, startMicros, NowMiros());
   //fprintf(wl,"%lu,",NowMiros()-startMicros);
   return s;
@@ -1681,7 +1690,7 @@ FILE* DBImpl::openValueFile(std::string &filename) {
   fileMutex_.Lock();
   //std::cerr<<"open "<<dbname_+"/values/"+filename<<std::endl;
   if(openedFiles_.find(filename)==openedFiles_.end()){
-    openedFiles_[filename] = fopen((dbname_+"/values/"+filename).c_str(), "w+");
+    openedFiles_[filename] = fopen(valueFileName(filename).c_str(), "a+");
   }
   FILE* f = openedFiles_[filename];
   fileMutex_.Unlock();
@@ -1729,11 +1738,14 @@ void DBImpl::GarbageCollect() {
     uint64_t gcSize = 0;
     // TODO: optimize, use new filename
     for(std::string filename:(*inGC_)){
+      std::cerr<<"gc "<<filename<<std::endl;
       gcSize+=options_.exp_ops.tableSize;
       //std::cerr<<"gc open file\n";
-      FILE* f = openValueFile(filename);
+      std::string newfile = filename;
+      newfile[0] = 'g';
+      FILE* f = openValueFile(newfile);
       fseek(f,0,SEEK_SET);
-      Iterator* iter = new ValueIterator(filename);
+      Iterator* iter = new ValueIterator(valueFileName(filename),this);
       //std::cerr<<"gc get iter\n";
       iter->SeekToFirst();
       while(iter->Valid()){
@@ -1749,9 +1761,33 @@ void DBImpl::GarbageCollect() {
     }
     delete inGC_;
     inGC_ = nullptr;
+    std::cerr<<"gc done"<<std::endl;
     STATS::Add(STATS::GetInstance()->gcWritebackBytes,gcWriteBack);
     STATS::Add(STATS::GetInstance()->gcSize,gcSize-gcWriteBack);
     STATS::Time(STATS::GetInstance()->gcTime,startMicros,NowMiros());
+}
+
+std::string DBImpl::valueFileName(const std::string &filename) {
+    return conbineStr({dbname_,"/values/",filename});
+}
+
+std::string DBImpl::vtablePathname(size_t filenum) {
+    return conbineStr({"t",std::to_string(filenum)});
+}
+
+std::string DBImpl::vlogPathname(size_t filenum) {
+  return conbineStr({"l",std::to_string(filenum)});
+}
+
+size_t DBImpl::writeVlog(const std::string &key, const std::string &value) {
+    fwrite((conbineKVPair(key,value)).c_str(),key.size()+value.size()+2,1,writingVlog_);
+    size_t offset = ftell(writingVlog_);
+    if(offset>options_.exp_ops.tableSize){
+      lastVlog_+=1;
+      fclose(writingVlog_);
+      writingVlog_ = fopen(vlogPathname(lastVlog_).c_str(),"a");
+    }
+    return offset-value.size()-1;
 }
 
 }  // namespace leveldb

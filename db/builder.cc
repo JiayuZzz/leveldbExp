@@ -12,6 +12,7 @@
 #include "leveldb/env.h"
 #include "leveldb/iterator.h"
 #include "leveldb/vtable_builder.h"
+#include "funcs.h"
 
 namespace leveldb {
 
@@ -21,25 +22,24 @@ Status BuildTable(const std::string& dbname,
                   TableCache* table_cache,
                   Iterator* iter,
                   FileMetaData* meta,
-                  size_t& lastVtable) {
+                  std::atomic<size_t>& lastVtable) {
   Status s;
   meta->file_size = 0;
   iter->SeekToFirst();
 
   std::string fname = TableFileName(dbname, meta->number);
-  std::string vtablename = "t" + std::to_string(lastVtable+1);
-  std::string vtablepathname = dbname+"/values/"+vtablename;
+  std::string vtablename = conbineStr({"t",std::to_string(lastVtable+1)});
+  std::string vtablepathname = conbineStr({dbname,"/values/",vtablename});
 
   if (iter->Valid()) {
     WritableFile* file;
-    FILE* vtable = fopen(vtablepathname.c_str(),"w");
     s = env->NewWritableFile(fname, &file);
     if (!s.ok()) {
       return s;
     }
 
     TableBuilder* builder = new TableBuilder(options, file);
-    VtableBuilder* vtableBuilder = new VtableBuilder(vtable);
+    VtableBuilder* vtableBuilder = new VtableBuilder(vtablepathname);
     meta->smallest.DecodeFrom(iter->key());
     for (; iter->Valid(); iter->Next()) {
       Slice key = iter->key();
@@ -53,15 +53,15 @@ Status BuildTable(const std::string& dbname,
         Slice value = iter->value();
         size_t offset = vtableBuilder->Add(userKey, value);
         // filename $ offset $ value size
-        std::string valueInfo = vtablename +"$"+std::to_string(offset)+"$"+std::to_string(value.size());
+        std::string valueInfo = conbineValueInfo(vtablename,offset,value.size());
         builder->Add(key, valueInfo);
         // finish this vtable
         if(offset>options.exp_ops.tableSize){
           vtableBuilder->Finish();
           lastVtable+=1;
-          vtablename = "t" + std::to_string(lastVtable+1);
-          vtablepathname = dbname+"/values/"+vtablename;
-          vtableBuilder->NextFile(fopen(vtablepathname.c_str(),"w"));
+          vtablename = conbineStr({"t",std::to_string(lastVtable+1)});
+          vtablepathname = conbineStr({dbname,"/values/",vtablename});
+          vtableBuilder->NextFile(vtablepathname);
         }
       }
     }

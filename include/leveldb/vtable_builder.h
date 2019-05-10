@@ -14,7 +14,7 @@ namespace leveldb {
 // vtable format: key1$value1$key2$value2...
 class LEVELDB_EXPORT VtableBuilder {
 public:
-    VtableBuilder(FILE* f);
+    VtableBuilder(const std::string& filepath);
 
     ~VtableBuilder();
 
@@ -24,7 +24,7 @@ public:
 
     bool Done();
 
-    void NextFile(FILE* f);
+    void NextFile(const std::string& filepath);
 
 private:
     std::string buffer;

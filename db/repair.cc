@@ -224,7 +224,7 @@ class Repairer {
     FileMetaData meta;
     meta.number = next_file_number_++;
     Iterator* iter = mem->NewIterator();
-    size_t a = 1;
+    std::atomic<size_t> a;
     std::cerr<<"repair!!!!!!!!!!!!!!!!!!!!!!!!!\n"<<std::endl;
     status = BuildTable(dbname_, env_, options_, table_cache_, iter, &meta, a);
     delete iter;

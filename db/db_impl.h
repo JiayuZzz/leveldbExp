@@ -211,8 +211,9 @@ class DBImpl : public DB {
     VfileMeta(double g):garbageR(g){}
     VfileMeta():garbageR(0){}
   };
-  size_t lastVtable_;
-  size_t lastVlog_;
+  std::atomic<size_t> lastVtable_;
+  std::atomic<size_t> lastVlog_;
+  FILE* writingVlog_;
   std::unordered_map<std::string ,FILE*> openedFiles_;
   port::Mutex fileMutex_;   // protect opened files
   ThreadPool* threadPool_;
@@ -221,6 +222,10 @@ class DBImpl : public DB {
   std::unordered_map<std::string ,VfileMeta> metaTable_;
 
   std::string readValueWithAddress(std::string valueInfo);
+  std::string valueFileName(const std::string& filename);
+  std::string vtablePathname(size_t filenum);
+  std::string vlogPathname(size_t filenum);
+  size_t writeVlog(const std::string& key, const std::string& value);
   void parseValueInfo(const std::string& valueInfo, std::string& filename, size_t &offset, size_t &valueSize);
   FILE* openValueFile(std::string& filename);
   void GarbageCollect();

@@ -14,7 +14,7 @@
 namespace leveldb {
     class ValueIterator : public Iterator {
     public:
-        ValueIterator(const std::string& valueFile);
+        ValueIterator(const std::string& valueFile, DB* db);
 
 
         virtual ~ValueIterator(){};
@@ -38,7 +38,7 @@ namespace leveldb {
         virtual Status status() const {return Status();};
 
     private:
-        std::fstream f;
+        std::ifstream f;
         std::string filename_;
         std::string key_;
         std::string value_;

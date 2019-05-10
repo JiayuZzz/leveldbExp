@@ -48,7 +48,7 @@ struct LEVELDB_EXPORT Options {
 
 
         ExpOps():seekCompaction(true), directIO(false), sizeRatio(10), noCompaction(false),
-                 baseLevelSize(10.0*1024*1024),numThreads(1),smallThreshold(64),
+                 baseLevelSize(10.0*1024*1024),numThreads(1),smallThreshold(64), mediumThreshold(4096),
                  tableSize(4*1024*1024),gcRatio(0.4),numFileGC(10){}
     };
   // -------------------
