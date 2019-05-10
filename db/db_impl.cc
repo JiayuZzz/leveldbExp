@@ -154,12 +154,13 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname)
                                &internal_comparator_)),
       lastVlog_(0),
       lastVtable_(0),
-      openedFiles_(), toGC_(new std::unordered_set<std::string>()),writingVlog_(fopen(valueFileName("l"+std::to_string(lastVlog_)).c_str(),"a")) {
+      openedFiles_(), toGC_(new std::unordered_set<std::string>()){
   threadPool_ = new ThreadPool(options_.exp_ops.numThreads);
   has_imm_.Release_Store(nullptr);
   if(access((dbname_+"/values").c_str(),F_OK)!=0&&options_.create_if_missing){
     env_->CreateDir(dbname_+"/values");
   }
+  writingVlog_=(fopen(vlogPathname(lastVlog_).c_str(),"w"));
   std::cerr<<"threads:"<<options_.exp_ops.numThreads<<std::endl;
 }
 
@@ -1690,7 +1691,7 @@ FILE* DBImpl::openValueFile(std::string &filename) {
   fileMutex_.Lock();
   //std::cerr<<"open "<<dbname_+"/values/"+filename<<std::endl;
   if(openedFiles_.find(filename)==openedFiles_.end()){
-    openedFiles_[filename] = fopen(valueFileName(filename).c_str(), "a+");
+    openedFiles_[filename] = fopen(valueFilePath(filename).c_str(), "a+");
   }
   FILE* f = openedFiles_[filename];
   fileMutex_.Unlock();
@@ -1745,7 +1746,7 @@ void DBImpl::GarbageCollect() {
       newfile[0] = 'g';
       FILE* f = openValueFile(newfile);
       fseek(f,0,SEEK_SET);
-      Iterator* iter = new ValueIterator(valueFileName(filename),this);
+      Iterator* iter = new ValueIterator(valueFilePath(filename),this);
       //std::cerr<<"gc get iter\n";
       iter->SeekToFirst();
       while(iter->Valid()){
@@ -1767,25 +1768,25 @@ void DBImpl::GarbageCollect() {
     STATS::Time(STATS::GetInstance()->gcTime,startMicros,NowMiros());
 }
 
-std::string DBImpl::valueFileName(const std::string &filename) {
+std::string DBImpl::valueFilePath(const std::string &filename) {
     return conbineStr({dbname_,"/values/",filename});
 }
 
 std::string DBImpl::vtablePathname(size_t filenum) {
-    return conbineStr({"t",std::to_string(filenum)});
+    return valueFilePath(conbineStr({"t",std::to_string(filenum)}));
 }
 
 std::string DBImpl::vlogPathname(size_t filenum) {
-  return conbineStr({"l",std::to_string(filenum)});
+  return valueFilePath(conbineStr({"l",std::to_string(filenum)}));
 }
 
 size_t DBImpl::writeVlog(const std::string &key, const std::string &value) {
     fwrite((conbineKVPair(key,value)).c_str(),key.size()+value.size()+2,1,writingVlog_);
     size_t offset = ftell(writingVlog_);
-    if(offset>options_.exp_ops.tableSize){
+    if(offset>=options_.exp_ops.tableSize){
       lastVlog_+=1;
       fclose(writingVlog_);
-      writingVlog_ = fopen(vlogPathname(lastVlog_).c_str(),"a");
+      writingVlog_ = fopen(vlogPathname(lastVlog_).c_str(),"w");
     }
     return offset-value.size()-1;
 }
