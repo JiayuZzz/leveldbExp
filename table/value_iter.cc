@@ -27,10 +27,12 @@ namespace leveldb {
     }
 
     void ValueIterator::Next() {
+        std::cerr<<"call next"<<std::endl;
         while(getline(f, key_, '$')){
             std::string valueInfo;
             std::string filename;
             size_t offset, size;
+            std::cerr<<"call get"<<std::endl;
             db_->Get(leveldb::ReadOptions(true),key_,&valueInfo);
             parseValueInfo(valueInfo,filename,offset,size);
             std::cerr<<"key "<<key_<<" value info "<<valueInfo<<" filename "<<filename<<" offset "<<offset<<std::endl;

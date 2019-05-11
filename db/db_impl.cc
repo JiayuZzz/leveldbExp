@@ -1741,20 +1741,18 @@ void DBImpl::GarbageCollect() {
     for(std::string filename:(*inGC_)){
       std::cerr<<"gc "<<filename<<std::endl;
       gcSize+=options_.exp_ops.tableSize;
-      //std::cerr<<"gc open file\n";
       std::string newfile = filename;
       newfile[0] = 'g';
       FILE* f = openValueFile(newfile);
       fseek(f,0,SEEK_SET);
       Iterator* iter = new ValueIterator(valueFilePath(filename),this);
-      //std::cerr<<"gc get iter\n";
       iter->SeekToFirst();
       while(iter->Valid()){
         size_t ksize = iter->key().size();
         size_t vsize = iter->value().size();
         std::cerr<<"gc write back\n";
-        fwrite((iter->key().ToString()+"$"+iter->value().ToString()+"$").c_str(),ksize+vsize+2,1,f);
-        Put(leveldb::WriteOptions(),iter->key(),filename+"$"+std::to_string(ftell(f)-1-vsize)+"$"+std::to_string(vsize));
+        fwrite(conbineKVPair(iter->key().ToString(),iter->value().ToString()).c_str(),ksize+vsize+2,1,f);
+        Put(leveldb::WriteOptions(),iter->key(),conbineValueInfo(newfile,ftell(f)-vsize-1,vsize));
         iter->Next();
         gcWriteBack+=vsize+ksize;
       }
