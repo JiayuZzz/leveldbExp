@@ -26,13 +26,24 @@ namespace leveldb {
 
     std::string conbineValueInfo(const std::string& filename, size_t offset, size_t size){
         std::string vinfo;
-        appendStr(vinfo,{filename,"$",std::to_string(offset),"$",std::to_string(size)});
+        appendStr(vinfo,{filename,"~",std::to_string(offset),"~",std::to_string(size)});
         return vinfo;
     }
 
     std::string conbineKVPair(const std::string& key, const std::string& value){
         std::string kv;
-        appendStr(kv,{key,"$",value,"$"});
+        appendStr(kv,{key,"~",value,"~"});
         return kv;
+    }
+
+    void parseValueInfo(const std::string &valueInfo, std::string &filename, size_t &offset, size_t &valueSize) {
+//        std::cerr<<"parse value info "<<valueInfo<<std::endl;
+        size_t offsetSep = valueInfo.find('~');
+        size_t sizeSep = valueInfo.rfind('~');
+        if(offsetSep==std::string::npos||sizeSep==std::string::npos) return;
+        offset = std::stoul(valueInfo.substr(offsetSep+1, sizeSep - offsetSep - 1));
+        valueSize = std::stoul(valueInfo.substr(sizeSep+1, valueInfo.size()-sizeSep-1));
+        filename = valueInfo.substr(0, offsetSep);
+//        std::cerr<<"parse done\n";
     }
 }

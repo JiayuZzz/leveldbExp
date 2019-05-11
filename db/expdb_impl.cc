@@ -459,7 +459,7 @@ namespace leveldb {
 
         /* write k-v to vlog file
          * format: <key size, value size, key, value>
-        * use '$' to seperate offset and value size, key size and value size, value size and key
+        * use '~' to seperate offset and value size, key size and value size, value size and key
         */
         std::future<Status> ret;
         while (iter->Valid()) {
@@ -488,12 +488,12 @@ namespace leveldb {
 
             std::string vlogStr = "";
             appendStr(vlogStr,
-                      {keySizeStr, "$", valueSizeStr, "$", key, val}); // | key size | value size | key | value |
+                      {keySizeStr, "~", valueSizeStr, "~", key, val}); // | key size | value size | key | value |
             fwrite(vlogStr.c_str(), vlogStr.size(), 1, f);
             size_t vlogOffset = ftell(f) - val.size();
             std::string vlogOffsetStr = std::to_string(vlogOffset);
             std::string indexStr = "";
-            appendStr(indexStr, {std::to_string(vlogNum), "$", vlogOffsetStr, "$",
+            appendStr(indexStr, {std::to_string(vlogNum), "~", vlogOffsetStr, "~",
                                  valueSizeStr});// |vlog file number|offset|size|
             s = indexDB_->Put(WriteOptions(), key, indexStr);
             if (!s.ok()) return s;
@@ -536,8 +536,8 @@ namespace leveldb {
     }
 
     void ExpDBImpl::parseValueInfo(const std::string &valueInfo, int &vlogNum, size_t &offset, size_t &valueSize) {
-        size_t offsetSep = valueInfo.find('$');
-        size_t sizeSep = valueInfo.rfind('$');
+        size_t offsetSep = valueInfo.find('~');
+        size_t sizeSep = valueInfo.rfind('~');
         std::string vlogNumStr = valueInfo.substr(0, offsetSep);
         std::string offsetStr = valueInfo.substr(offsetSep + 1, sizeSep - offsetSep - 1);
         std::string valueSizeStr = valueInfo.substr(sizeSep + 1, valueInfo.size() - sizeSep - 1);

@@ -43,15 +43,6 @@ namespace leveldb {
         std::string key_;
         std::string value_;
         DB* db_;
-
-        void parseValueInfo(const std::string &valueInfo, std::string &filename, size_t &offset, size_t &valueSize) {
-            size_t offsetSep = valueInfo.find('$');
-            size_t sizeSep = valueInfo.rfind('$');
-            offset = std::stoul(valueInfo.substr(offsetSep+1, sizeSep - offsetSep - 1));
-            valueSize = std::stoul(valueInfo.substr(sizeSep+1, valueInfo.size()-sizeSep-1));
-            filename = valueInfo.substr(0, offsetSep);
-            //std::cerr<<"######filename : "<<filename<<std::endl;
-        }
     };
 }
 

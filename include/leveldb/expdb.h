@@ -33,7 +33,7 @@ namespace leveldb {
         /*
         * indexDB: <key,vlogfilenumber+offset+value size>
         * vlog: <key size, value size, key, value>
-        * use '$' to seperate vlogfilenumber and offset, offset and value size, key size and value size, value size and key
+        * use '~' to seperate vlogfilenumber and offset, offset and value size, key size and value size, value size and key
         */
         virtual Status Put(const WriteOptions writeOptions, const std::string &key, const std::string &val) = 0;
 

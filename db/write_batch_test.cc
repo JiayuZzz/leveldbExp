@@ -39,7 +39,7 @@ static std::string PrintContents(WriteBatch* b) {
         count++;
         break;
     }
-    state.append("@");
+    state.append("~");
     state.append(NumberToString(ikey.sequence));
   }
   delete iter;

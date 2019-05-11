@@ -986,8 +986,8 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
         std::string filename;
         std::string size;
         std::stringstream ss(input->value().ToString());
-        std::getline(ss,filename,'$');
-        std::getline(ss,size,'$');
+        std::getline(ss,filename,'~');
+        std::getline(ss,size,'~');
         if(metaTable_.find(filename)==metaTable_.end()) metaTable_[filename] = VfileMeta(std::stod(size)/options_.exp_ops.tableSize);
         else metaTable_[filename].garbageR+=std::stod(size)/options_.exp_ops.tableSize;
         // TODO optimize
@@ -1084,7 +1084,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   VersionSet::LevelSummaryStorage tmp;
   Log(options_.info_log,
       "compacted to: %s", versions_->LevelSummary(&tmp));
-  std::cerr<<"trigger gc?"<<std::endl;
+//  std::cerr<<"trigger gc?"<<std::endl;
   if(toGC_->size()>=options_.exp_ops.numFileGC&&inGC_==nullptr) {
     std::cerr<<"trigger gc for "<<toGC_->size()<<"files"<<std::endl;
     inGC_ = toGC_;
@@ -1652,7 +1652,7 @@ Status DestroyDB(const std::string& dbname, const Options& options) {
 }
 
 /* selective */
-std::string DBImpl::readValueWithAddress(std::string valueInfo) {
+std::string DBImpl::readValueWithAddress(const std::string &valueInfo) {
     //std::cerr<<"*read value "<<valueInfo<<std::endl;
     Status s;
     // get filename, offset and value size
@@ -1678,15 +1678,6 @@ std::string DBImpl::readValueWithAddress(std::string valueInfo) {
     return std::string(value);
 }
 
-void DBImpl::parseValueInfo(const std::string &valueInfo, std::string &filename, size_t &offset, size_t &valueSize) {
-  size_t offsetSep = valueInfo.find('$');
-  size_t sizeSep = valueInfo.rfind('$');
-  offset = std::stoul(valueInfo.substr(offsetSep+1, sizeSep - offsetSep - 1));
-  valueSize = std::stoul(valueInfo.substr(sizeSep+1, valueInfo.size()-sizeSep-1));
-  filename = valueInfo.substr(0, offsetSep);
-  //std::cerr<<"######filename : "<<filename<<std::endl;
-}
-
 FILE* DBImpl::openValueFile(std::string &filename) {
   fileMutex_.Lock();
   //std::cerr<<"open "<<dbname_+"/values/"+filename<<std::endl;
@@ -1704,19 +1695,20 @@ Status DBImpl::Scan(const leveldb::ReadOptions &options, const std::string &star
     auto iter = NewIterator(options);
     iter->Seek(start);
     std::vector<std::future<std::string>> retValues;
+    std::vector<std::string> valueInfos;
     size_t cnt = 0;
     uint64_t iterStart = NowMiros();
     while(iter->Valid()&&cnt<num){
         //std::cerr<<"iter\n";
         keys.push_back(iter->key().ToString());
+        valueInfos.emplace_back(iter->value().ToString());
         //std::string valueInfo = iter->value().ToString();
         uint64_t assignStart = NowMiros();
         retValues.emplace_back(threadPool_->addTask(
-                &DBImpl::readValueWithAddress, this, iter->value().ToString())
+                &DBImpl::readValueWithAddress, this, valueInfos.back())
                 );
         STATS::Time(STATS::GetInstance()->assignThread, assignStart, NowMiros());
         cnt++;
-        //std::cerr<<"thread\n";
         iter->Next();
     }
     STATS::Time(STATS::GetInstance()->scanVlogIter, iterStart, NowMiros());
@@ -1745,22 +1737,32 @@ void DBImpl::GarbageCollect() {
       newfile[0] = 'g';
       FILE* f = openValueFile(newfile);
       fseek(f,0,SEEK_SET);
+
+      std::string filepath = valueFilePath(filename);
+        if(access(filepath.c_str(),F_OK)!=0){
+            std::cerr<<"has been gced\n";
+            metaTable_.erase(filename);
+            continue;
+        }
+
       Iterator* iter = new ValueIterator(valueFilePath(filename),this);
       iter->SeekToFirst();
       while(iter->Valid()){
         size_t ksize = iter->key().size();
         size_t vsize = iter->value().size();
-        std::cerr<<"gc write back\n";
+        //std::cerr<<"gc write back "<<vsize<<std::endl;
         fwrite(conbineKVPair(iter->key().ToString(),iter->value().ToString()).c_str(),ksize+vsize+2,1,f);
         Put(leveldb::WriteOptions(),iter->key(),conbineValueInfo(newfile,ftell(f)-vsize-1,vsize));
+        std::cerr<<"write back key "<<iter->key().ToString()<<", value info "<<conbineValueInfo(newfile,ftell(f)-vsize-1,vsize)<<std::endl;
         iter->Next();
         gcWriteBack+=vsize+ksize;
       }
+      delete iter;
       metaTable_.erase(filename);
     }
     delete inGC_;
     inGC_ = nullptr;
-    std::cerr<<"gc done"<<std::endl;
+    std::cerr<<"gc done, gc "<<gcSize<<" write back "<<gcWriteBack<<std::endl;
     STATS::Add(STATS::GetInstance()->gcWritebackBytes,gcWriteBack);
     STATS::Add(STATS::GetInstance()->gcSize,gcSize-gcWriteBack);
     STATS::Time(STATS::GetInstance()->gcTime,startMicros,NowMiros());

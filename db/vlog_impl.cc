@@ -48,7 +48,7 @@ namespace leveldb {
     /*
     * indexDB: <key,vlognum, offset+value size>
     * vlog: <key size, value size, key, value>
-    * use '$' to seperate offset and value size, key size and value size, value size and key
+    * use '~' to seperate offset and value size, key size and value size, value size and key
     */
     Status VlogDBImpl::Put(const leveldb::WriteOptions writeOptions, const std::string &key, const std::string &val) {
         uint64_t startMicro = NowMiros();
@@ -58,7 +58,7 @@ namespace leveldb {
         std::string valueSizeStr = std::to_string(valueSize);
 
         std::string vlogStr = "";
-        appendStr(vlogStr, {keySizeStr, "$", valueSizeStr, "$", key, val}); // | key size | value size | key | value |
+        appendStr(vlogStr, {keySizeStr, "~", valueSizeStr, "~", key, val}); // | key size | value size | key | value |
         FILE *vlog = OpenVlog(lastVlogNum_);
         fwrite(vlogStr.c_str(), vlogStr.size(), 1, vlog);
         STATS::Add(STATS::GetInstance()->vlogWriteDisk,vlogStr.size());
@@ -66,7 +66,7 @@ namespace leveldb {
         long vlogOffset = ftell(vlog) - val.size();
         std::string vlogOffsetStr = std::to_string(vlogOffset);
         std::string indexStr = "";
-        appendStr(indexStr, {std::to_string(lastVlogNum_), "$", vlogOffsetStr, "$", valueSizeStr});
+        appendStr(indexStr, {std::to_string(lastVlogNum_), "~", vlogOffsetStr, "~", valueSizeStr});
         Status s = indexDB_->Put(writeOptions, key, indexStr);
         // save tail
         if (ftell(vlog) > options_.vlogSize) {
@@ -211,8 +211,8 @@ namespace leveldb {
     }
 
     void VlogDBImpl::parseValueInfo(const std::string &valueInfo, int &vlogNum, size_t &offset, size_t &valueSize) {
-        size_t offsetSep = valueInfo.find('$');
-        size_t sizeSep = valueInfo.rfind('$');
+        size_t offsetSep = valueInfo.find('~');
+        size_t sizeSep = valueInfo.rfind('~');
         std::string vlogNumStr = valueInfo.substr(0, offsetSep);
         std::string offsetStr = valueInfo.substr(offsetSep + 1, sizeSep - offsetSep - 1);
         std::string valueSizeStr = valueInfo.substr(sizeSep + 1, valueInfo.size() - sizeSep - 1);

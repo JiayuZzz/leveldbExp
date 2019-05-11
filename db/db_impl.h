@@ -221,12 +221,11 @@ class DBImpl : public DB {
   std::unordered_set<std::string>* inGC_;
   std::unordered_map<std::string ,VfileMeta> metaTable_;
 
-  std::string readValueWithAddress(std::string valueInfo);
+  std::string readValueWithAddress(const std::string& valueInfo);
   std::string valueFilePath(const std::string& filename);
   std::string vtablePathname(size_t filenum);
   std::string vlogPathname(size_t filenum);
   size_t writeVlog(const std::string& key, const std::string& value);
-  void parseValueInfo(const std::string& valueInfo, std::string& filename, size_t &offset, size_t &valueSize);
   FILE* openValueFile(std::string& filename);
   void GarbageCollect();
 };
