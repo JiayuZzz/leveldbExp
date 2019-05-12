@@ -4,6 +4,8 @@
 
 #include "value_iter.h"
 #include "db/funcs.h"
+#include "leveldb/env.h"
+#include "leveldb/statistics.h"
 
 namespace leveldb {
     ValueIterator::ValueIterator(const std::string &valueFile, DB* db):key_(""),value_(""),db_(db),filename_(valueFile) {
@@ -34,7 +36,10 @@ namespace leveldb {
             std::string filename;
             size_t offset = 0, size = 0;
 //            std::cerr<<"call get"<<std::endl;
+            uint64_t startRead = NowMiros();
             db_->Get(leveldb::ReadOptions(true),key_,&valueInfo);
+            STATS::Time(STATS::GetInstance()->gcReadLsm,startRead,NowMiros());
+
 //            std::cerr<<"get done\n";
             if(valueInfo.size()<100) {
                 parseValueInfo(valueInfo, filename, offset, size);

@@ -213,6 +213,7 @@ class DBImpl : public DB {
   };
   std::atomic<size_t> lastVtable_;
   std::atomic<size_t> lastVlog_;
+  std::atomic<size_t> lastGCFile_;
   FILE* writingVlog_;
   std::unordered_map<std::string ,FILE*> openedFiles_;
   port::Mutex fileMutex_;   // protect opened files
@@ -227,7 +228,9 @@ class DBImpl : public DB {
   std::string vlogPathname(size_t filenum);
   size_t writeVlog(const std::string& key, const std::string& value);
   FILE* openValueFile(std::string& filename);
+  void closeValueFile(std::string& filename);
   void GarbageCollect();
+  Status deleteFile(const std::string& filename);
 };
 
 // Sanitize db options.  The caller should delete result.info_log if

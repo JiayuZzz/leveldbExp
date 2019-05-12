@@ -123,7 +123,6 @@ namespace leveldb {
             double scanTime = scanVlogStat.second;
             double iterTime = scanVlogIter;
             double assign = assignThread;
-            double gc = gcTime;
             printf("Total vlogdb write time: %.2f s, count: %u, write latency: %.2f us\n", writeTime / 1000000,
                    writeCnt, writeTime / writeCnt);
             printf("Total vlogdb read time: %.2f s, count: %u, read latency: %.2f us\n", readTime / 1000000, readCnt,
@@ -134,11 +133,10 @@ namespace leveldb {
             printf("Vlog scan LSM-Tree iter time: %.2f s\n", iterTime / 1000000);
             printf("Assign vlog thread time: %.2f s\n", assign / 1000000);
             printf("Wait vlog scan threads finish time: %.2f s\n", (double) waitScanThreadsFinish / 1000000);
-            printf("Vlog gc time: %.2f s\n", (double) STATS::GetInstance()->gcTime / 1000000);
-            printf("gc reclaimed size: %lu, gc write back size: %lu\n",gcSize, gcWritebackBytes);
+            printf("Vlog gc time: %.2f s\n", (double) STATS::GetInstance()->gcTime / 1000000.0);
+            printf("gc size: %lu, gc write back size: %lu\n",gcSize, gcWritebackBytes);
             printf("Read LSM time during gc: %.2f\n", (double) STATS::GetInstance()->gcReadLsm / 1000000);
             printf("Put back time during gc: %.2f\n", (double) STATS::GetInstance()->gcPutBack / 1000000);
-            printf("Write back to vlog bytes during gc: %lu\n", gcWritebackBytes);
             printf("vlog write disk size: %.2fMB\n",vlogWriteDisk/1000000.0);
         }
 

@@ -154,7 +154,7 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname)
                                &internal_comparator_)),
       lastVlog_(0),
       lastVtable_(0),
-      openedFiles_(), toGC_(new std::unordered_set<std::string>()){
+      openedFiles_(), toGC_(new std::unordered_set<std::string>()), lastGCFile_(0){
   threadPool_ = new ThreadPool(options_.exp_ops.numThreads);
   has_imm_.Release_Store(nullptr);
   if(access((dbname_+"/values").c_str(),F_OK)!=0&&options_.create_if_missing){
@@ -1680,13 +1680,26 @@ std::string DBImpl::readValueWithAddress(const std::string &valueInfo) {
 
 FILE* DBImpl::openValueFile(std::string &filename) {
   fileMutex_.Lock();
-  //std::cerr<<"open "<<dbname_+"/values/"+filename<<std::endl;
-  if(openedFiles_.find(filename)==openedFiles_.end()){
+  if(openedFiles_.find(filename)==openedFiles_.end()||openedFiles_[filename]==nullptr){
     openedFiles_[filename] = fopen(valueFilePath(filename).c_str(), "a+");
   }
   FILE* f = openedFiles_[filename];
   fileMutex_.Unlock();
+  std::cerr<<"open "<<filename<<std::endl;
+  if(!f) {
+    std::cerr<<"open error "<<strerror(errno)<<std::endl;
+  }
   return f;
+}
+
+void DBImpl::closeValueFile(std::string &filename) {
+  fileMutex_.Lock();
+  FILE* f = openedFiles_[filename];
+  if(f) {
+    fclose(f);
+    openedFiles_.erase(filename);
+  }
+  fileMutex_.Unlock();
 }
 
 Status DBImpl::Scan(const leveldb::ReadOptions &options, const std::string &start, const std::string &end,
@@ -1726,46 +1739,54 @@ Status DBImpl::Scan(const leveldb::ReadOptions &options, const std::string &star
 
 void DBImpl::GarbageCollect() {
     std::cerr<<"start gc "<<inGC_->size()<<std::endl;
-    uint64_t startMicros = NowMiros();
-    uint64_t gcWriteBack = 0;
-    uint64_t gcSize = 0;
     // TODO: optimize, use new filename
     for(std::string filename:(*inGC_)){
+      uint64_t startMicros = NowMiros();
+      uint64_t gcWriteBack = 0;
+      uint64_t gcSize = 0;
       std::cerr<<"gc "<<filename<<std::endl;
       gcSize+=options_.exp_ops.tableSize;
-      std::string newfile = filename;
-      newfile[0] = 'g';
-      FILE* f = openValueFile(newfile);
+
+      std::string gcfile = conbineStr({"g",std::to_string(lastGCFile_.load())});
+      std::cerr<<"filename "<<filename<<" gc filename "<<gcfile<<std::endl;
+      FILE* f = openValueFile(gcfile);
       fseek(f,0,SEEK_SET);
 
       std::string filepath = valueFilePath(filename);
         if(access(filepath.c_str(),F_OK)!=0){
             std::cerr<<"has been gced\n";
             metaTable_.erase(filename);
+            std::cerr<<"continue\n";
             continue;
         }
-
-      Iterator* iter = new ValueIterator(valueFilePath(filename),this);
+      Iterator* iter = new ValueIterator(filepath,this);
       iter->SeekToFirst();
       while(iter->Valid()){
         size_t ksize = iter->key().size();
         size_t vsize = iter->value().size();
         //std::cerr<<"gc write back "<<vsize<<std::endl;
         fwrite(conbineKVPair(iter->key().ToString(),iter->value().ToString()).c_str(),ksize+vsize+2,1,f);
-        Put(leveldb::WriteOptions(),iter->key(),conbineValueInfo(newfile,ftell(f)-vsize-1,vsize));
-        std::cerr<<"write back key "<<iter->key().ToString()<<", value info "<<conbineValueInfo(newfile,ftell(f)-vsize-1,vsize)<<std::endl;
+        size_t offset = ftell(f)-vsize-1;
+        Put(leveldb::WriteOptions(),iter->key(),conbineValueInfo(gcfile,offset,vsize));
+        if(offset>=options_.exp_ops.tableSize) { // next gc file
+          lastGCFile_+=1;
+          gcfile = conbineStr({"g",std::to_string(lastGCFile_.load())});
+          f = openValueFile(gcfile);
+        }
         iter->Next();
         gcWriteBack+=vsize+ksize;
       }
       delete iter;
+      closeValueFile(filename);
+      deleteFile(filename);
       metaTable_.erase(filename);
+      std::cerr<<"gc done, gc "<<gcSize<<" write back "<<gcWriteBack<<std::endl;
+      STATS::Add(STATS::GetInstance()->gcWritebackBytes,gcWriteBack);
+      STATS::Add(STATS::GetInstance()->gcSize,gcSize);
+      STATS::Time(STATS::GetInstance()->gcTime,startMicros,NowMiros());
     }
     delete inGC_;
     inGC_ = nullptr;
-    std::cerr<<"gc done, gc "<<gcSize<<" write back "<<gcWriteBack<<std::endl;
-    STATS::Add(STATS::GetInstance()->gcWritebackBytes,gcWriteBack);
-    STATS::Add(STATS::GetInstance()->gcSize,gcSize-gcWriteBack);
-    STATS::Time(STATS::GetInstance()->gcTime,startMicros,NowMiros());
 }
 
 std::string DBImpl::valueFilePath(const std::string &filename) {
@@ -1790,5 +1811,9 @@ size_t DBImpl::writeVlog(const std::string &key, const std::string &value) {
     }
     return offset-value.size()-1;
 }
+
+Status DBImpl::deleteFile(const std::string &filename){
+      return remove(valueFilePath(filename).c_str()) == 0 ? Status() : Status().IOError("delete vlog error\n");
+    }
 
 }  // namespace leveldb
