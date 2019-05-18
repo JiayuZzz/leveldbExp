@@ -34,14 +34,14 @@ namespace leveldb {
         while(getline(f, key_, '~')){
             std::string valueInfo;
             std::string filename;
-            size_t offset = 0, size = 0;
+            size_t offset = -1, size = 0;
 //            std::cerr<<"call get"<<std::endl;
             uint64_t startRead = NowMiros();
             db_->Get(leveldb::ReadOptions(true),key_,&valueInfo);
             STATS::Time(STATS::GetInstance()->gcReadLsm,startRead,NowMiros());
 
 //            std::cerr<<"get done\n";
-            if(valueInfo.size()<100) {
+            if(valueInfo.back()=='~') {
                 parseValueInfo(valueInfo, filename, offset, size);
 //                std::cerr << "key " << key_ << " value info " << valueInfo << " filename " << filename << " offset "
 //                          << offset << std::endl;

@@ -222,13 +222,14 @@ class DBImpl : public DB {
   std::unordered_set<std::string>* inGC_;
   std::unordered_map<std::string ,VfileMeta> metaTable_;
 
-  std::string readValueWithAddress(const std::string& valueInfo);
+  Status readValueWithAddress(std::string& valueInfo);
+  std::string readValue(FILE* f, size_t offset, size_t size);
   std::string valueFilePath(const std::string& filename);
   std::string vtablePathname(size_t filenum);
   std::string vlogPathname(size_t filenum);
   size_t writeVlog(const std::string& key, const std::string& value);
-  FILE* openValueFile(std::string& filename);
-  void closeValueFile(std::string& filename);
+  FILE* openValueFile(const std::string& filename);
+  void closeValueFile(const std::string& filename);
   void GarbageCollect();
   Status deleteFile(const std::string& filename);
 };

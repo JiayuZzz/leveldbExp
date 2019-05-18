@@ -55,6 +55,9 @@ namespace leveldb {
         uint64_t lsmIOTime;
         uint64_t generateFilterTime;
         uint64_t vtableWriteBuffer;
+        uint64_t readValueFile;
+        uint64_t openFileTime;
+        uint64_t fadviceTime;
 
         static void TimeAndCount(statType &stat, uint64_t start, uint64_t end) {
             stat.first++;
@@ -131,7 +134,10 @@ namespace leveldb {
                    scanTime / scanCnt);
             printf("Vtable write buffer time:%.2f s\n",vtableWriteBuffer/1000000.0);
             printf("Vlog scan LSM-Tree iter time: %.2f s\n", iterTime / 1000000);
+            printf("Fadvice time: %.2f\n",fadviceTime/1000000.0);
             printf("Assign vlog thread time: %.2f s\n", assign / 1000000);
+            printf("Read value file time: %.2f\n",readValueFile/1000000.0);
+            printf("Open value file time: %.2f\n",openFileTime/1000000.0);
             printf("Wait vlog scan threads finish time: %.2f s\n", (double) waitScanThreadsFinish / 1000000);
             printf("Vlog gc time: %.2f s\n", (double) STATS::GetInstance()->gcTime / 1000000.0);
             printf("gc size: %lu, gc write back size: %lu\n",gcSize, gcWritebackBytes);

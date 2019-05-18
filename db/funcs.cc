@@ -26,7 +26,7 @@ namespace leveldb {
 
     std::string conbineValueInfo(const std::string& filename, size_t offset, size_t size){
         std::string vinfo;
-        appendStr(vinfo,{filename,"~",std::to_string(offset),"~",std::to_string(size)});
+        appendStr(vinfo,{filename,"~",std::to_string(offset),"~",std::to_string(size),"~"});
         return vinfo;
     }
 
@@ -36,13 +36,16 @@ namespace leveldb {
         return kv;
     }
 
+    // filename~offset~size~
     void parseValueInfo(const std::string &valueInfo, std::string &filename, size_t &offset, size_t &valueSize) {
 //        std::cerr<<"parse value info "<<valueInfo<<std::endl;
         size_t offsetSep = valueInfo.find('~');
-        size_t sizeSep = valueInfo.rfind('~');
+        size_t sizeSep = valueInfo.find('~',offsetSep+1);
         if(offsetSep==std::string::npos||sizeSep==std::string::npos) return;
+//        std::cerr<<"parse 1 "<<valueInfo.substr(offsetSep+1, sizeSep - offsetSep - 1)<<std::endl;
         offset = std::stoul(valueInfo.substr(offsetSep+1, sizeSep - offsetSep - 1));
-        valueSize = std::stoul(valueInfo.substr(sizeSep+1, valueInfo.size()-sizeSep-1));
+//        std::cerr<<"parse 2 "<<valueInfo.substr(sizeSep+1, valueInfo.size()-sizeSep-2)<<std::endl;
+        valueSize = std::stoul(valueInfo.substr(sizeSep+1, valueInfo.size()-sizeSep-2));
         filename = valueInfo.substr(0, offsetSep);
 //        std::cerr<<"parse done\n";
     }

@@ -12,6 +12,7 @@
 #include <string>
 #include <vector>
 #include <zconf.h>
+#include <fcntl.h>
 
 #include "db/builder.h"
 #include "db/db_iter.h"
@@ -160,7 +161,7 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname)
   if(access((dbname_+"/values").c_str(),F_OK)!=0&&options_.create_if_missing){
     env_->CreateDir(dbname_+"/values");
   }
-  writingVlog_=(fopen(vlogPathname(lastVlog_).c_str(),"w"));
+  writingVlog_=(fopen(vlogPathname(lastVlog_).c_str(),"a+"));
   std::cerr<<"threads:"<<options_.exp_ops.numThreads<<std::endl;
 }
 
@@ -1205,7 +1206,7 @@ Status DBImpl::Get(const ReadOptions& options,
   //std::cerr<<*value<<std::endl;
   if (s.ok()) {
     if (!options.value_pos) {
-      *value = readValueWithAddress(*value);
+      readValueWithAddress(*value);
     }
   }
   STATS::TimeAndCount(STATS::GetInstance()->readStat,startMicros,Env::Default()->NowMicros());
@@ -1245,6 +1246,7 @@ void DBImpl::ReleaseSnapshot(const Snapshot* snapshot) {
 
 // Convenience methods
 Status DBImpl::Put(const WriteOptions& o, const Slice& key, const Slice& val) {
+//  std::cerr<<"valuesize "<<val.size()<<std::endl;
   uint64_t startMicros = NowMiros();
   Status s;
   if(val.size()>=options_.exp_ops.mediumThreshold){
@@ -1652,47 +1654,50 @@ Status DestroyDB(const std::string& dbname, const Options& options) {
 }
 
 /* selective */
-std::string DBImpl::readValueWithAddress(const std::string &valueInfo) {
-    //std::cerr<<"*read value "<<valueInfo<<std::endl;
+Status DBImpl::readValueWithAddress(std::string &valueInfo) {
     Status s;
+    if(valueInfo.back()!='~') // it's a real value
+        return s;
+    //std::cerr<<"*read value "<<valueInfo<<std::endl;
     // get filename, offset and value size
     std::string filename;
     size_t offset;
     size_t valueSize;
     parseValueInfo(valueInfo, filename, offset, valueSize);
-    FILE *f = openValueFile(filename);
-    if(!f) return "";
-    //std::cerr<<"#"+dbname_+"/values/"+filename<<std::endl;
-    //FILE* f = fopen((dbname_+"/values/"+filename).c_str(),"r");
-    if(!f) std::cerr<<"open error\n";
-    //std::cerr<<"open done\n";
-    char value[valueSize+1];
-    size_t got = pread(fileno(f),value,valueSize,offset);
-    //std::cerr<<got<<std::endl;
-    if(got!=valueSize){
-        s.IOError("get value error\n");
-        std::cerr<<"get value error\n";
-    }
-    //std::cerr<<std::string(value)<<std::endl;
-    //fclose(f);
-    return std::string(value);
+    FILE* f = openValueFile(filename);
+    valueInfo = readValue(f, offset, valueSize);
+    return s;
 }
 
-FILE* DBImpl::openValueFile(std::string &filename) {
+std::string DBImpl::readValue(FILE* f, size_t offset, size_t size) {
+    uint64_t startMicros = NowMiros();
+    char value[size+1];
+    size_t got = pread(fileno(f),value,size,offset);
+    if(got!=size){
+      std::cerr<<"get value error "<< strerror(errno) <<" offset "<<offset<<" size "<<size<<" got "<<got<<std::endl;
+    }
+    std::string ret = std::string(value);
+    STATS::Time(STATS::GetInstance()->readValueFile,startMicros,NowMiros());
+    return ret;
+}
+
+FILE* DBImpl::openValueFile(const std::string &filename) {
+  uint64_t startMicro = NowMiros();
   fileMutex_.Lock();
   if(openedFiles_.find(filename)==openedFiles_.end()||openedFiles_[filename]==nullptr){
     openedFiles_[filename] = fopen(valueFilePath(filename).c_str(), "a+");
   }
   FILE* f = openedFiles_[filename];
   fileMutex_.Unlock();
-  std::cerr<<"open "<<filename<<std::endl;
+//  std::cerr<<"open "<<filename<<std::endl;
   if(!f) {
     std::cerr<<"open error "<<strerror(errno)<<std::endl;
   }
+  STATS::Time(STATS::GetInstance()->openFileTime, startMicro, NowMiros());
   return f;
 }
 
-void DBImpl::closeValueFile(std::string &filename) {
+void DBImpl::closeValueFile(const std::string &filename) {
   fileMutex_.Lock();
   FILE* f = openedFiles_[filename];
   if(f) {
@@ -1701,6 +1706,49 @@ void DBImpl::closeValueFile(std::string &filename) {
   }
   fileMutex_.Unlock();
 }
+
+/*
+    Status DBImpl::Scan(const leveldb::ReadOptions &options, const std::string &start, const std::string &end,
+                        std::vector<std::string> &keys, std::vector<std::string> &values, size_t num) {
+        //std::cerr<<"scan\n";
+        auto iter = NewIterator(options);
+        iter->Seek(start);
+        std::vector<std::future<std::string>> retValues;
+        std::vector<std::string> valueInfos;
+        size_t cnt = 0;
+        uint64_t iterStart = NowMiros();
+        std::unordered_map<std::string, size_t> fileReadSize;
+        while(iter->Valid()&&cnt<num){
+            //std::cerr<<"iter\n";
+            keys.push_back(iter->key().ToString());
+            std::string valueInfo = iter->value().ToString();
+            std::string filename;
+            size_t offset, size;
+            if(valueInfo.back()=='~') {
+                parseValueInfo(valueInfo, filename, offset, size);
+                FILE* f = openValueFile(filename);
+                uint64_t startAdvice = NowMiros();
+                posix_fadvise(fileno(f),offset,size,POSIX_FADV_WILLNEED);
+                STATS::Time(STATS::GetInstance()->fadviceTime, startAdvice, NowMiros());
+                if (filename[0] == 't') {
+                    if (fileReadSize[filename]) fileReadSize[filename] += size;
+                    else {
+                        fileReadSize[filename] = size;
+                    }
+                }
+                values.emplace_back(readValue(f,offset,size));
+            } else {
+                // don't read real value for now
+                // TODO: support it
+            }
+            cnt++;
+            iter->Next();
+        }
+        STATS::Time(STATS::GetInstance()->scanVlogIter, iterStart, NowMiros());
+        delete(iter);
+        return Status();
+    }
+    */
 
 Status DBImpl::Scan(const leveldb::ReadOptions &options, const std::string &start, const std::string &end,
                     std::vector<std::string> &keys, std::vector<std::string> &values, size_t num) {
@@ -1711,16 +1759,42 @@ Status DBImpl::Scan(const leveldb::ReadOptions &options, const std::string &star
     std::vector<std::string> valueInfos;
     size_t cnt = 0;
     uint64_t iterStart = NowMiros();
+    std::unordered_map<std::string, size_t> fileReadSize;
     while(iter->Valid()&&cnt<num){
         //std::cerr<<"iter\n";
         keys.push_back(iter->key().ToString());
-        valueInfos.emplace_back(iter->value().ToString());
-        //std::string valueInfo = iter->value().ToString();
-        uint64_t assignStart = NowMiros();
-        retValues.emplace_back(threadPool_->addTask(
-                &DBImpl::readValueWithAddress, this, valueInfos.back())
-                );
-        STATS::Time(STATS::GetInstance()->assignThread, assignStart, NowMiros());
+        std::string valueInfo = iter->value().ToString();
+        std::string filename;
+        size_t offset, size;
+        if(valueInfo.back()=='~') {
+          parseValueInfo(valueInfo, filename, offset, size);
+          FILE* f = openValueFile(filename);
+          uint64_t startAdvice = NowMiros();
+          readahead(fileno(f),offset,size);
+          //posix_fadvise(fileno(f),offset,size,POSIX_FADV_WILLNEED);
+          STATS::Time(STATS::GetInstance()->fadviceTime, startAdvice, NowMiros());
+          if (filename[0] == 't') {
+            if (fileReadSize[filename]) fileReadSize[filename] += size;
+            else {
+                fileReadSize[filename] = size;
+//                uint64_t startAdvice = NowMiros();
+//                posix_fadvise(fileno(f),offset,size,POSIX_FADV_WILLNEED);
+//                STATS::Time(STATS::GetInstance()->fadviceTime, startAdvice, NowMiros());
+            }
+          }else{
+//              uint64_t startAdvice = NowMiros();
+//              posix_fadvise(fileno(f),offset,size,POSIX_FADV_RANDOM|POSIX_FADV_WILLNEED);
+//              STATS::Time(STATS::GetInstance()->fadviceTime, startAdvice, NowMiros());
+          }
+          uint64_t assignStart = NowMiros();
+          retValues.emplace_back(threadPool_->addTask(
+                  &DBImpl::readValue, this, f, offset, size)
+          );
+          STATS::Time(STATS::GetInstance()->assignThread, assignStart, NowMiros());
+        } else {
+          // don't read real value for now
+          // TODO: support it
+        }
         cnt++;
         iter->Next();
     }
@@ -1807,7 +1881,7 @@ size_t DBImpl::writeVlog(const std::string &key, const std::string &value) {
     if(offset>=options_.exp_ops.tableSize){
       lastVlog_+=1;
       fclose(writingVlog_);
-      writingVlog_ = fopen(vlogPathname(lastVlog_).c_str(),"w");
+      writingVlog_ = fopen(vlogPathname(lastVlog_).c_str(),"a+");
     }
     return offset-value.size()-1;
 }
