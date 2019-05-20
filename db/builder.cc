@@ -28,7 +28,7 @@ Status BuildTable(const std::string& dbname,
   iter->SeekToFirst();
 
   std::string fname = TableFileName(dbname, meta->number);
-  std::string vtablename = conbineStr({"t",std::to_string(lastVtable+1)});
+  std::string vtablename = conbineStr({"t",std::to_string(++lastVtable)});
   std::string vtablepathname = conbineStr({dbname,"/values/",vtablename});
 
   if (iter->Valid()) {
@@ -48,7 +48,7 @@ Status BuildTable(const std::string& dbname,
       // small value?
       if(valueSize<=options.exp_ops.smallThreshold){
         builder->Add(key,iter->value());
-      } else {
+      } else {                             // write value to vtable, write location to lsm-tree
         Slice userKey = ExtractUserKey(key);
         Slice value = iter->value();
         size_t offset = vtableBuilder->Add(userKey, value);
@@ -58,8 +58,7 @@ Status BuildTable(const std::string& dbname,
         // finish this vtable
         if(offset>options.exp_ops.tableSize){
           vtableBuilder->Finish();
-          lastVtable+=1;
-          vtablename = conbineStr({"t",std::to_string(lastVtable+1)});
+          vtablename = conbineStr({"t",std::to_string(++lastVtable)});
           vtablepathname = conbineStr({dbname,"/values/",vtablename});
           vtableBuilder->NextFile(vtablepathname);
         }
@@ -69,7 +68,7 @@ Status BuildTable(const std::string& dbname,
     // Finish and check for builder errors
     if(!vtableBuilder->Done()){
       vtableBuilder->Finish();
-      lastVtable+=1;
+      std::cerr<<"done builder\n";
     }
     s = builder->Finish();
     if (s.ok()) {

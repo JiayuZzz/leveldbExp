@@ -17,7 +17,9 @@ namespace leveldb {
         ValueIterator(const std::string& valueFile, DB* db);
 
 
-        virtual ~ValueIterator(){};
+        virtual ~ValueIterator(){
+            f.close();
+        };
 
         virtual bool Valid() const ;
 

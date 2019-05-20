@@ -17,6 +17,8 @@
 #include "port/port.h"
 #include "port/thread_annotations.h"
 #include "unordered_set"
+#include "util/block_queue.h"
+#include "funcs.h"
 
 namespace leveldb {
 
@@ -85,6 +87,7 @@ class DBImpl : public DB {
   // be made to the descriptor are added to *edit.
   Status Recover(VersionEdit* edit, bool* save_manifest)
       EXCLUSIVE_LOCKS_REQUIRED(mutex_);
+
 
   void MaybeIgnoreError(Status* s) const;
 
@@ -205,6 +208,15 @@ class DBImpl : public DB {
   }
 
   /* selective kv */
+  struct ValueLoc {
+      FILE* f;
+      size_t offset;
+      size_t size;
+
+      ValueLoc(){}
+      ValueLoc(FILE* file, size_t o, size_t s):f(file),offset(o),size(s){}
+  };
+
   struct VfileMeta {
     double garbageR;   //garbage ratio;
 
@@ -221,17 +233,29 @@ class DBImpl : public DB {
   std::unordered_set<std::string>* toGC_;
   std::unordered_set<std::string>* inGC_;
   std::unordered_map<std::string ,VfileMeta> metaTable_;
+  BlockQueue<std::string> toMerge_;
+
 
   Status readValueWithAddress(std::string& valueInfo);
   std::string readValue(FILE* f, size_t offset, size_t size);
   std::string valueFilePath(const std::string& filename);
   std::string vtablePathname(size_t filenum);
   std::string vlogPathname(size_t filenum);
+  void readValueForScan(std::vector<std::string>& values, BlockQueue<ValueLoc>& locs);
+  size_t nextVtable(){
+      Put(WriteOptions(),"lastvtable",std::to_string(1+lastVtable_));
+      return ++lastVtable_;
+  }
+
   size_t writeVlog(const std::string& key, const std::string& value);
   FILE* openValueFile(const std::string& filename);
   void closeValueFile(const std::string& filename);
   void GarbageCollect();
   Status deleteFile(const std::string& filename);
+  Status mergeVtables(std::unordered_set<std::string>& inMerge);
+  void mayScheduleMerge(std::shared_ptr<std::unordered_map<std::string, size_t>> fileReadSize);
+  void scheduleMerge();
+  Status RecoverMeta();
 };
 
 // Sanitize db options.  The caller should delete result.info_log if

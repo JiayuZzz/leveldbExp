@@ -13,6 +13,7 @@
 #include <vector>
 #include <zconf.h>
 #include <fcntl.h>
+#include <include/leveldb/vtable_builder.h>
 
 #include "db/builder.h"
 #include "db/db_iter.h"
@@ -155,7 +156,7 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname)
                                &internal_comparator_)),
       lastVlog_(0),
       lastVtable_(0),
-      openedFiles_(), toGC_(new std::unordered_set<std::string>()), lastGCFile_(0){
+      openedFiles_(), toGC_(new std::unordered_set<std::string>()), lastGCFile_(0), toMerge_(){
   threadPool_ = new ThreadPool(options_.exp_ops.numThreads);
   has_imm_.Release_Store(nullptr);
   if(access((dbname_+"/values").c_str(),F_OK)!=0&&options_.create_if_missing){
@@ -163,6 +164,7 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname)
   }
   writingVlog_=(fopen(vlogPathname(lastVlog_).c_str(),"a+"));
   std::cerr<<"threads:"<<options_.exp_ops.numThreads<<std::endl;
+  threadPool_->addTask(&DBImpl::scheduleMerge,this);
 }
 
 DBImpl::~DBImpl() {
@@ -322,13 +324,11 @@ Status DBImpl::Recover(VersionEdit* edit, bool *save_manifest) {
           dbname_, "exists (error_if_exists is true)");
     }
   }
-
   s = versions_->Recover(save_manifest);
   if (!s.ok()) {
     return s;
   }
   SequenceNumber max_sequence(0);
-
   // Recover from all newer log files than the ones named in the
   // descriptor (new log files may have been added by the previous
   // incarnation without registering them in the descriptor).
@@ -350,18 +350,18 @@ Status DBImpl::Recover(VersionEdit* edit, bool *save_manifest) {
   std::vector<uint64_t> logs;
   for (size_t i = 0; i < filenames.size(); i++) {
     if (ParseFileName(filenames[i], &number, &type)) {
-      expected.erase(number);
+        expected.erase(number);
       if (type == kLogFile && ((number >= min_log) || (number == prev_log)))
         logs.push_back(number);
     }
   }
-  if (!expected.empty()) {
+
+    if (!expected.empty()) {
     char buf[50];
     snprintf(buf, sizeof(buf), "%d missing files; e.g.",
              static_cast<int>(expected.size()));
     return Status::Corruption(buf, TableFileName(dbname_, *(expected.begin())));
   }
-
   // Recover in the order in which the logs were generated
   std::sort(logs.begin(), logs.end());
   for (size_t i = 0; i < logs.size(); i++) {
@@ -380,7 +380,6 @@ Status DBImpl::Recover(VersionEdit* edit, bool *save_manifest) {
   if (versions_->LastSequence() < max_sequence) {
     versions_->SetLastSequence(max_sequence);
   }
-
   return Status::OK();
 }
 
@@ -984,16 +983,20 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
         drop = true;    // (A)
 
         // update vfile meta
-        std::string filename;
-        std::string size;
-        std::stringstream ss(input->value().ToString());
-        std::getline(ss,filename,'~');
-        std::getline(ss,size,'~');
-        if(metaTable_.find(filename)==metaTable_.end()) metaTable_[filename] = VfileMeta(std::stod(size)/options_.exp_ops.tableSize);
-        else metaTable_[filename].garbageR+=std::stod(size)/options_.exp_ops.tableSize;
-        // TODO optimize
-        if(metaTable_[filename].garbageR>options_.exp_ops.gcRatio && toGC_->find(filename)==toGC_->end()&&(!inGC_||inGC_->find(filename)==inGC_->end())) {
+        if(input->value().ToString().back()=='~') {
+          std::string filename;
+          std::string size;
+          std::stringstream ss(input->value().ToString());
+          std::getline(ss, filename, '~');
+          std::getline(ss, size, '~');
+          if (metaTable_.find(filename) == metaTable_.end())
+            metaTable_[filename] = VfileMeta(std::stod(size) / options_.exp_ops.tableSize);
+          else metaTable_[filename].garbageR += std::stod(size) / options_.exp_ops.tableSize;
+          // TODO optimize
+          if (metaTable_[filename].garbageR > options_.exp_ops.gcRatio && toGC_->find(filename) == toGC_->end() &&
+              (!inGC_ || inGC_->find(filename) == inGC_->end())) {
             toGC_->insert(filename);
+          }
         }
       } else if (ikey.type == kTypeDeletion &&
                  ikey.sequence <= compact->smallest_snapshot &&
@@ -1585,6 +1588,7 @@ Status DB::Open(const Options& options, const std::string& dbname,
   // Recover handles create_if_missing, error_if_exists
   bool save_manifest = false;
   Status s = impl->Recover(&edit, &save_manifest);
+
   if (s.ok() && impl->mem_ == nullptr) {
     // Create new log and a corresponding memtable.
     uint64_t new_log_number = impl->versions_->NewFileNumber();
@@ -1616,6 +1620,7 @@ Status DB::Open(const Options& options, const std::string& dbname,
   } else {
     delete impl;
   }
+  impl->RecoverMeta();
   return s;
 }
 
@@ -1679,6 +1684,14 @@ std::string DBImpl::readValue(FILE* f, size_t offset, size_t size) {
     std::string ret = std::string(value);
     STATS::Time(STATS::GetInstance()->readValueFile,startMicros,NowMiros());
     return ret;
+}
+
+void DBImpl::readValueForScan(std::vector<std::string> &values, leveldb::BlockQueue<ValueLoc> &locs) {
+    while(1){
+        ValueLoc vl = locs.Get();
+        if(!vl.f) return;
+        values.emplace_back(readValue(vl.f,vl.offset,vl.size));
+    }
 }
 
 FILE* DBImpl::openValueFile(const std::string &filename) {
@@ -1753,44 +1766,36 @@ void DBImpl::closeValueFile(const std::string &filename) {
 Status DBImpl::Scan(const leveldb::ReadOptions &options, const std::string &start, const std::string &end,
                     std::vector<std::string> &keys, std::vector<std::string> &values, size_t num) {
     //std::cerr<<"scan\n";
+    uint64_t startScan = NowMiros();
     auto iter = NewIterator(options);
     iter->Seek(start);
-    std::vector<std::future<std::string>> retValues;
+    std::future<void> readDone;
     std::vector<std::string> valueInfos;
     size_t cnt = 0;
     uint64_t iterStart = NowMiros();
-    std::unordered_map<std::string, size_t> fileReadSize;
+    auto fileReadSize = std::make_shared<std::unordered_map<std::string, size_t>>();
+    BlockQueue<ValueLoc> bq;
+    readDone = threadPool_->addTask(&DBImpl::readValueForScan,this,std::ref(values),std::ref(bq));
     while(iter->Valid()&&cnt<num){
         //std::cerr<<"iter\n";
         keys.push_back(iter->key().ToString());
         std::string valueInfo = iter->value().ToString();
         std::string filename;
         size_t offset, size;
-        if(valueInfo.back()=='~') {
+
+        if(valueInfo.back()=='~') {    // value location
           parseValueInfo(valueInfo, filename, offset, size);
           FILE* f = openValueFile(filename);
           uint64_t startAdvice = NowMiros();
           readahead(fileno(f),offset,size);
-          //posix_fadvise(fileno(f),offset,size,POSIX_FADV_WILLNEED);
           STATS::Time(STATS::GetInstance()->fadviceTime, startAdvice, NowMiros());
           if (filename[0] == 't') {
-            if (fileReadSize[filename]) fileReadSize[filename] += size;
+            if ((*fileReadSize)[filename]) (*fileReadSize)[filename] += size;
             else {
-                fileReadSize[filename] = size;
-//                uint64_t startAdvice = NowMiros();
-//                posix_fadvise(fileno(f),offset,size,POSIX_FADV_WILLNEED);
-//                STATS::Time(STATS::GetInstance()->fadviceTime, startAdvice, NowMiros());
+              (*fileReadSize)[filename] = size;
             }
-          }else{
-//              uint64_t startAdvice = NowMiros();
-//              posix_fadvise(fileno(f),offset,size,POSIX_FADV_RANDOM|POSIX_FADV_WILLNEED);
-//              STATS::Time(STATS::GetInstance()->fadviceTime, startAdvice, NowMiros());
           }
-          uint64_t assignStart = NowMiros();
-          retValues.emplace_back(threadPool_->addTask(
-                  &DBImpl::readValue, this, f, offset, size)
-          );
-          STATS::Time(STATS::GetInstance()->assignThread, assignStart, NowMiros());
+          bq.Put(ValueLoc(f,offset,size));
         } else {
           // don't read real value for now
           // TODO: support it
@@ -1798,18 +1803,60 @@ Status DBImpl::Scan(const leveldb::ReadOptions &options, const std::string &star
         cnt++;
         iter->Next();
     }
+    bq.Put(ValueLoc(nullptr,0,0));
     STATS::Time(STATS::GetInstance()->scanVlogIter, iterStart, NowMiros());
     delete(iter);
-    values.resize(retValues.size());
-    auto viter = values.begin();
     uint64_t wait = NowMiros();
-    for(auto &ret:retValues){
-        *viter = ret.get();
-        viter++;
-    }
+    readDone.wait();
     STATS::Time(STATS::GetInstance()->waitScanThreadsFinish, wait, NowMiros());
+    STATS::TimeAndCount(STATS::GetInstance()->scanVlogStat, startScan, NowMiros());
+    threadPool_->addTask(&DBImpl::mayScheduleMerge,this,fileReadSize);
     return Status();
 }
+
+void DBImpl::mayScheduleMerge(std::shared_ptr<std::unordered_map<std::string, size_t>> fileReadSize){
+    if(fileReadSize->size()==0) return;
+    size_t sum = 0;
+    size_t canMerge = 0;
+    std::vector<std::string> toSchedule;
+    for(const auto& item:*fileReadSize){
+        sum+=item.second;
+        if(item.second<2048) {
+          toSchedule.push_back(item.first);
+          canMerge+=item.second;
+        }
+    }
+    if(sum/fileReadSize->size()<4096&&canMerge>16000){
+        for(const auto file:toSchedule){
+            toMerge_.Put(file);
+        }
+    }
+}
+
+void DBImpl::scheduleMerge(){
+    std::unordered_set<std::string> toSchedule;
+    std::unordered_set<std::string> merging;
+    while(1){
+        std::string filename = toMerge_.Get();
+        if(merging.find(filename)==merging.end()) toSchedule.insert(filename);
+        if(toSchedule.size()>100&&merging.empty()) {
+            merging = toSchedule;
+            toSchedule = std::unordered_set<std::string>();
+            threadPool_->addTask(&DBImpl::mergeVtables,this,std::ref(merging));
+        }
+    }
+}
+
+Status DBImpl::RecoverMeta() {
+    std::string lastvtable;
+    Get(ReadOptions(),"lastvtable",&lastvtable);
+    if(lastvtable!="") {
+      std::cerr<<"last vtable:"<<lastvtable<<std::endl;
+      lastVtable_ = std::stoul(lastvtable);
+    }
+    return Status();
+};
+
 
 void DBImpl::GarbageCollect() {
     std::cerr<<"start gc "<<inGC_->size()<<std::endl;
@@ -1889,5 +1936,40 @@ size_t DBImpl::writeVlog(const std::string &key, const std::string &value) {
 Status DBImpl::deleteFile(const std::string &filename){
       return remove(valueFilePath(filename).c_str()) == 0 ? Status() : Status().IOError("delete vlog error\n");
     }
+
+Status DBImpl::mergeVtables(std::unordered_set<std::string>& inMerge) {
+    std::cerr<<"start merge "<<inMerge.size()<<" files\n";
+    std::vector<Iterator*> iters;
+    for(const auto& file:inMerge){
+        iters.push_back(new ValueIterator(valueFilePath(file),this));
+    }
+    std::cerr<<std::endl;
+    Iterator* iter = NewMergingIterator(options_.comparator,&iters[0],iters.size());
+
+    std::string vtablename = conbineStr({"t",std::to_string(nextVtable())});
+    VtableBuilder* builder = new VtableBuilder(valueFilePath(vtablename));
+    iter->SeekToFirst();
+    while(iter->Valid()){
+      Slice key = iter->key();
+      Slice value = iter->value();
+      size_t offset = builder->Add(key,value);
+      std::string valueInfo = conbineValueInfo(vtablename,offset,value.size());
+      Put(leveldb::WriteOptions(),key,valueInfo);
+      if(offset>options_.exp_ops.tableSize){
+        builder->Finish();
+        vtablename = conbineStr({"t",std::to_string(nextVtable())});
+        builder->NextFile(valueFilePath(vtablename));
+      }
+      iter->Next();
+    }
+  if(!builder->Done()){
+    builder->Finish();
+  }
+  std::cerr<<"merge done\n";
+  for(const auto& file:inMerge) deleteFile(file);
+  delete iter;
+  inMerge.clear();
+  return Status();
+}
 
 }  // namespace leveldb

@@ -4,6 +4,7 @@
 
 #include <iostream>
 #include <leveldb/env.h>
+#include <zconf.h>
 #include "leveldb/vtable_builder.h"
 #include "leveldb/statistics.h"
 #include "db/funcs.h"
@@ -28,6 +29,7 @@ namespace leveldb {
         size_t write = fwrite(buffer.c_str(), buffer.size(), 1, file);
         buffer.clear();
         pos = 0;
+        fsync(fileno(file));
         fclose(file);
         return write==buffer.size()?Status():Status::IOError("Write Vtalbe Error");
     }
