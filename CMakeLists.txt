@@ -88,10 +88,6 @@ target_sources(leveldb
     "${PROJECT_SOURCE_DIR}/db/c.cc"
     "${PROJECT_SOURCE_DIR}/db/db_impl.cc"
     "${PROJECT_SOURCE_DIR}/db/db_impl.h"
-    "${PROJECT_SOURCE_DIR}/db/vlog_impl.cc"
-    "${PROJECT_SOURCE_DIR}/db/vlog_impl.h"
-    "${PROJECT_SOURCE_DIR}/db/expdb_impl.h"
-    "${PROJECT_SOURCE_DIR}/db/expdb_impl.cc"
     "${PROJECT_SOURCE_DIR}/db/db_iter.cc"
     "${PROJECT_SOURCE_DIR}/db/db_iter.h"
     "${PROJECT_SOURCE_DIR}/db/dbformat.cc"
@@ -182,8 +178,6 @@ target_sources(leveldb
     "${LEVELDB_PUBLIC_INCLUDE_DIR}/table.h"
     "${LEVELDB_PUBLIC_INCLUDE_DIR}/write_batch.h"
     "${LEVELDB_PUBLIC_INCLUDE_DIR}/statistics.h"
-    "${LEVELDB_PUBLIC_INCLUDE_DIR}/vlog.h"
-    "${LEVELDB_PUBLIC_INCLUDE_DIR}/expdb.h"
     "${LEVELDB_PUBLIC_INCLUDE_DIR}/vtable_builder.h"
     "${LEVELDB_PUBLIC_INCLUDE_DIR}/threadpool.h"
 )
@@ -414,9 +408,7 @@ if(LEVELDB_INSTALL)
       "${PROJECT_SOURCE_DIR}/${LEVELDB_PUBLIC_INCLUDE_DIR}/table.h"
       "${PROJECT_SOURCE_DIR}/${LEVELDB_PUBLIC_INCLUDE_DIR}/write_batch.h"
       "${PROJECT_SOURCE_DIR}/${LEVELDB_PUBLIC_INCLUDE_DIR}/statistics.h"
-      "${PROJECT_SOURCE_DIR}/${LEVELDB_PUBLIC_INCLUDE_DIR}/vlog.h"
       "${PROJECT_SOURCE_DIR}/${LEVELDB_PUBLIC_INCLUDE_DIR}/vtable_builder.h"
-      "${PROJECT_SOURCE_DIR}/${LEVELDB_PUBLIC_INCLUDE_DIR}/expdb.h"
       "${PROJECT_SOURCE_DIR}/${LEVELDB_PUBLIC_INCLUDE_DIR}/threadpool.h"
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/leveldb
   )
