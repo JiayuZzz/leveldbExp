@@ -230,10 +230,10 @@ class DBImpl : public DB {
   std::unordered_map<std::string ,FILE*> openedFiles_;
   port::Mutex fileMutex_;   // protect opened files
   ThreadPool* threadPool_;
-  std::unordered_set<std::string>* toGC_;
-  std::unordered_set<std::string>* inGC_;
+  //std::unordered_set<std::string>* toGC_;
   std::unordered_map<std::string ,VfileMeta> metaTable_;
   BlockQueue<std::string> toMerge_;
+  BlockQueue<std::string> toGC_;
 
 
   Status readValueWithAddress(std::string& valueInfo);
@@ -250,11 +250,12 @@ class DBImpl : public DB {
   size_t writeVlog(const std::string& key, const std::string& value);
   FILE* openValueFile(const std::string& filename);
   void closeValueFile(const std::string& filename);
-  void GarbageCollect();
+  void GarbageCollect(std::shared_ptr<std::unordered_set<std::string>> inGC);
   Status deleteFile(const std::string& filename);
-  Status mergeVtables(std::unordered_set<std::string>& inMerge);
+  Status mergeVtables(std::shared_ptr<std::unordered_set<std::string>> inMerge);
   void mayScheduleMerge(std::shared_ptr<std::unordered_map<std::string, size_t>> fileReadSize);
   void scheduleMerge();
+  void scheduleGC();
   Status RecoverMeta();
 };
 

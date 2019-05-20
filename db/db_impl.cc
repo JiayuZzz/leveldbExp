@@ -156,7 +156,7 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname)
                                &internal_comparator_)),
       lastVlog_(0),
       lastVtable_(0),
-      openedFiles_(), toGC_(new std::unordered_set<std::string>()), lastGCFile_(0), toMerge_(){
+      openedFiles_(), lastGCFile_(0), toMerge_(), toGC_(){
   threadPool_ = new ThreadPool(options_.exp_ops.numThreads);
   has_imm_.Release_Store(nullptr);
   if(access((dbname_+"/values").c_str(),F_OK)!=0&&options_.create_if_missing){
@@ -165,6 +165,7 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname)
   writingVlog_=(fopen(vlogPathname(lastVlog_).c_str(),"a+"));
   std::cerr<<"threads:"<<options_.exp_ops.numThreads<<std::endl;
   threadPool_->addTask(&DBImpl::scheduleMerge,this);
+  threadPool_->addTask(&DBImpl::scheduleGC,this);
 }
 
 DBImpl::~DBImpl() {
@@ -983,21 +984,24 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
         drop = true;    // (A)
 
         // update vfile meta
+        uint64_t startMeta = NowMiros();
         if(input->value().ToString().back()=='~') {
           std::string filename;
+          std::string offset;
           std::string size;
           std::stringstream ss(input->value().ToString());
           std::getline(ss, filename, '~');
+          std::getline(ss, offset, '~');
           std::getline(ss, size, '~');
           if (metaTable_.find(filename) == metaTable_.end())
             metaTable_[filename] = VfileMeta(std::stod(size) / options_.exp_ops.tableSize);
           else metaTable_[filename].garbageR += std::stod(size) / options_.exp_ops.tableSize;
           // TODO optimize
-          if (metaTable_[filename].garbageR > options_.exp_ops.gcRatio && toGC_->find(filename) == toGC_->end() &&
-              (!inGC_ || inGC_->find(filename) == inGC_->end())) {
-            toGC_->insert(filename);
+          if (metaTable_[filename].garbageR > options_.exp_ops.gcRatio ) {
+            toGC_.Put(filename);
           }
         }
+        STATS::Time(STATS::GetInstance()->gcMeta,startMeta,NowMiros());
       } else if (ikey.type == kTypeDeletion &&
                  ikey.sequence <= compact->smallest_snapshot &&
                  compact->compaction->IsBaseLevelForKey(ikey.user_key)) {
@@ -1088,13 +1092,6 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   VersionSet::LevelSummaryStorage tmp;
   Log(options_.info_log,
       "compacted to: %s", versions_->LevelSummary(&tmp));
-//  std::cerr<<"trigger gc?"<<std::endl;
-  if(toGC_->size()>=options_.exp_ops.numFileGC&&inGC_==nullptr) {
-    std::cerr<<"trigger gc for "<<toGC_->size()<<"files"<<std::endl;
-    inGC_ = toGC_;
-    toGC_ = new std::unordered_set<std::string>();
-    threadPool_->addTask(&DBImpl::GarbageCollect, this);
-  }
   return status;
 }
 
@@ -1834,15 +1831,30 @@ void DBImpl::mayScheduleMerge(std::shared_ptr<std::unordered_map<std::string, si
 }
 
 void DBImpl::scheduleMerge(){
-    std::unordered_set<std::string> toSchedule;
-    std::unordered_set<std::string> merging;
+    auto toSchedule = std::make_shared<std::unordered_set<std::string>>();
+    auto merging = std::make_shared<std::unordered_set<std::string>>();
     while(1){
         std::string filename = toMerge_.Get();
-        if(merging.find(filename)==merging.end()) toSchedule.insert(filename);
-        if(toSchedule.size()>100&&merging.empty()) {
+        if(merging->find(filename)==merging->end()) toSchedule->insert(filename);
+        if(toSchedule->size()>100&&merging->empty()) {
             merging = toSchedule;
-            toSchedule = std::unordered_set<std::string>();
+            toSchedule = std::make_shared<std::unordered_set<std::string>>();
             threadPool_->addTask(&DBImpl::mergeVtables,this,std::ref(merging));
+        }
+    }
+}
+
+void DBImpl::scheduleGC() {
+    auto toGC = std::make_shared<std::unordered_set<std::string>>();
+    auto inGC = std::make_shared<std::unordered_set<std::string>>();
+    while(1){
+        std::string filename = toGC_.Get();
+        if(inGC->find(filename)==inGC->end()) toGC->insert(filename);
+        std::cerr<<"to gc :"<<toGC->size()<<std::endl;
+        if(toGC->size()>options_.exp_ops.numFileGC&&inGC->empty()){
+            inGC = toGC;
+            toGC = std::make_shared<std::unordered_set<std::string>>();
+            threadPool_->addTask(&DBImpl::GarbageCollect,this,inGC);
         }
     }
 }
@@ -1858,10 +1870,10 @@ Status DBImpl::RecoverMeta() {
 };
 
 
-void DBImpl::GarbageCollect() {
-    std::cerr<<"start gc "<<inGC_->size()<<std::endl;
+void DBImpl::GarbageCollect(std::shared_ptr<std::unordered_set<std::string>> inGC) {
+    std::cerr<<"start gc "<<inGC->size()<<std::endl;
     // TODO: optimize, use new filename
-    for(std::string filename:(*inGC_)){
+    for(std::string filename:(*inGC)){
       uint64_t startMicros = NowMiros();
       uint64_t gcWriteBack = 0;
       uint64_t gcSize = 0;
@@ -1886,9 +1898,13 @@ void DBImpl::GarbageCollect() {
         size_t ksize = iter->key().size();
         size_t vsize = iter->value().size();
         //std::cerr<<"gc write back "<<vsize<<std::endl;
+        int64_t startWriteValue = NowMiros();
         fwrite(conbineKVPair(iter->key().ToString(),iter->value().ToString()).c_str(),ksize+vsize+2,1,f);
+        STATS::Time(STATS::GetInstance()->gcWriteValue,startWriteValue,NowMiros());
         size_t offset = ftell(f)-vsize-1;
+        uint64_t startWriteLSM = NowMiros();
         Put(leveldb::WriteOptions(),iter->key(),conbineValueInfo(gcfile,offset,vsize));
+        STATS::Time(STATS::GetInstance()->gcWriteLSM,startWriteLSM,NowMiros());
         if(offset>=options_.exp_ops.tableSize) { // next gc file
           lastGCFile_+=1;
           gcfile = conbineStr({"g",std::to_string(lastGCFile_.load())});
@@ -1906,8 +1922,7 @@ void DBImpl::GarbageCollect() {
       STATS::Add(STATS::GetInstance()->gcSize,gcSize);
       STATS::Time(STATS::GetInstance()->gcTime,startMicros,NowMiros());
     }
-    delete inGC_;
-    inGC_ = nullptr;
+    inGC->clear();
 }
 
 std::string DBImpl::valueFilePath(const std::string &filename) {
@@ -1937,10 +1952,10 @@ Status DBImpl::deleteFile(const std::string &filename){
       return remove(valueFilePath(filename).c_str()) == 0 ? Status() : Status().IOError("delete vlog error\n");
     }
 
-Status DBImpl::mergeVtables(std::unordered_set<std::string>& inMerge) {
-    std::cerr<<"start merge "<<inMerge.size()<<" files\n";
+Status DBImpl::mergeVtables(std::shared_ptr<std::unordered_set<std::string>> inMerge) {
+    std::cerr<<"start merge "<<inMerge->size()<<" files\n";
     std::vector<Iterator*> iters;
-    for(const auto& file:inMerge){
+    for(const auto& file:*inMerge){
         iters.push_back(new ValueIterator(valueFilePath(file),this));
     }
     std::cerr<<std::endl;
@@ -1966,9 +1981,9 @@ Status DBImpl::mergeVtables(std::unordered_set<std::string>& inMerge) {
     builder->Finish();
   }
   std::cerr<<"merge done\n";
-  for(const auto& file:inMerge) deleteFile(file);
+  for(const auto& file:*inMerge) deleteFile(file);
   delete iter;
-  inMerge.clear();
+  inMerge->clear();
   return Status();
 }
 

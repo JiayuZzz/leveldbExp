@@ -41,7 +41,8 @@ namespace leveldb {
         uint64_t compactionSync;
         uint64_t assignThread;
         uint64_t gcTime;
-        uint64_t gcPutBack;
+        uint64_t gcWriteValue;
+        uint64_t gcWriteLSM;
         uint64_t gcReadLsm;
         uint64_t gcWritebackBytes;
         uint64_t gcSize;
@@ -58,6 +59,8 @@ namespace leveldb {
         uint64_t readValueFile;
         uint64_t openFileTime;
         uint64_t fadviceTime;
+        uint64_t gcPutBack;
+        uint64_t gcMeta;
 
         static void TimeAndCount(statType &stat, uint64_t start, uint64_t end) {
             stat.first++;
@@ -106,6 +109,7 @@ namespace leveldb {
             printf("LSM-Tree compaction sync time: %.2f\n",compactionSync/1000000.0);
             printf("LSM-Tree compaction add to builder time: %.2f s\n", builderTime / 1000000);
             printf("LSM-Tree compaction iterator find next kv time: %.2f s\n",cNextTime / 1000000);
+            printf("LSM-Tree gc metadata time: %.2f\n",gcMeta/1000000.0);
             printf("LSM-Tree add index block time: %.2f\n",addIndexBlock/1000000.0);
             printf("LSM-Tree add key to filter builder time: %.2f\n",addFilter/1000000.0);
             printf("LSM-Tree generate filter time: %.2f\n",generateFilterTime/1000000.0);
@@ -139,10 +143,11 @@ namespace leveldb {
             printf("Read value file time: %.2f\n",readValueFile/1000000.0);
             printf("Open value file time: %.2f\n",openFileTime/1000000.0);
             printf("Wait vlog scan threads finish time: %.2f s\n", (double) waitScanThreadsFinish / 1000000);
-            printf("Vlog gc time: %.2f s\n", (double) STATS::GetInstance()->gcTime / 1000000.0);
+            printf("Vlog gc time: %.2f s\n", (double) gcTime / 1000000.0);
             printf("gc size: %lu, gc write back size: %lu\n",gcSize, gcWritebackBytes);
-            printf("Read LSM time during gc: %.2f\n", (double) STATS::GetInstance()->gcReadLsm / 1000000);
-            printf("Put back time during gc: %.2f\n", (double) STATS::GetInstance()->gcPutBack / 1000000);
+            printf("Read LSM time during gc: %.2f\n", (double)gcReadLsm / 1000000);
+            printf("Write value time during gc: %.2f\n", (double)gcWriteValue / 1000000);
+            printf("Write lsm time during gc: %.2f\n", (double)gcWriteLSM / 1000000);
             printf("vlog write disk size: %.2fMB\n",vlogWriteDisk/1000000.0);
         }
 
