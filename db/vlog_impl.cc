@@ -6,8 +6,10 @@
 #include "unistd.h"
 #include "funcs.h"
 #include <sys/stat.h>
+#include <fcntl.h>
 
 FILE *offsetsFile = fopen("./offsets", "w");
+uint64_t insertCnt = 0;
 
 namespace leveldb {
 
@@ -35,6 +37,12 @@ namespace leveldb {
             mkdir(vlogDir.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
         }
         Recover();
+        /*
+        if (options_.gcAfterExe > 0) {
+            fprintf(stderr,"start gc\n");
+            threadPool_->addTask(&VlogDBImpl::GarbageCollect,this,options.gcAfterExe);
+        }
+         */
     }
 
     FILE *VlogDBImpl::OpenVlog(int vlogNum) {
@@ -50,7 +58,15 @@ namespace leveldb {
     * vlog: <key size, value size, key, value>
     * use '$' to seperate offset and value size, key size and value size, value size and key
     */
-    Status VlogDBImpl::Put(const leveldb::WriteOptions writeOptions, const std::string &key, const std::string &val) {
+    Status VlogDBImpl::Put(const leveldb::WriteOptions& writeOptions, const std::string &key, const std::string &val) {
+        insertCnt++;
+        //TODO make it configurable
+        if(insertCnt==20000000){
+            if (options_.gcAfterExe > 0) {
+                fprintf(stderr,"start gc\n");
+                threadPool_->addTask(&VlogDBImpl::GarbageCollect,this,options_.gcAfterExe);
+            }
+        }
         uint64_t startMicro = NowMiros();
         long keySize = key.size();
         long valueSize = val.size();
@@ -81,7 +97,7 @@ namespace leveldb {
     * Get value offset and value size from indexDB
     * Get value from vlog
     */
-    Status VlogDBImpl::Get(const leveldb::ReadOptions readOptions, const std::string &key, std::string *val) {
+    Status VlogDBImpl::Get(const leveldb::ReadOptions& readOptions, const std::string &key, std::string *val) {
         uint64_t startMicro = NowMiros();
         std::string valueInfo;
         Status s = indexDB_->Get(readOptions, key, &valueInfo);
@@ -91,7 +107,7 @@ namespace leveldb {
         return s;
     }
 
-    Status VlogDBImpl::Delete(const leveldb::WriteOptions writeOptions, const std::string &key) {
+    Status VlogDBImpl::Delete(const leveldb::WriteOptions& writeOptions, const std::string &key) {
         uint64_t startMicro = NowMiros();
         Status s = indexDB_->Delete(writeOptions, key);
         STATS::TimeAndCount(STATS::GetInstance()->writeVlogStat, startMicro, NowMiros());
@@ -99,7 +115,7 @@ namespace leveldb {
     }
 
     // multi-threading range query, return scan number
-    size_t VlogDBImpl::Scan(const leveldb::ReadOptions readOptions, const std::string &start, size_t num,
+    size_t VlogDBImpl::Scan(const leveldb::ReadOptions& readOptions, const std::string &start, size_t num,
                             std::vector<std::string> &keys, std::vector<std::string> &values) {
         uint64_t startMicro = NowMiros();
         size_t i = 0, j = 0;
@@ -119,6 +135,14 @@ namespace leveldb {
         for (; i < num && iter->Valid(); i++) {
             keys[i] = iter->key().ToString();
             valueInfos[i] = iter->value().ToString();
+            int filenum;
+            size_t offset;
+            size_t size;
+            parseValueInfo(valueInfos[i],filenum,offset,size);
+            FILE* f = OpenVlog(filenum);
+//            uint64_t startAdvice = NowMiros();
+//            readahead(fileno(f),offset,size);
+//            STATS::Time(STATS::GetInstance()->fadviceTime, startAdvice, NowMiros());
 //                std::cerr<<"add task\n";
             if ((i % (sep) == 0 && i != 0) || i == num - 1) {
                 uint64_t assignStart = NowMiros();
@@ -195,10 +219,6 @@ namespace leveldb {
 
     bool VlogDBImpl::GetProperty(const Slice &property, std::string *value) {
         fprintf(stderr,"getproperty\n");
-        if (options_.gcAfterExe > 0) {
-            fprintf(stderr,"start gc\n");
-            GarbageCollect(options_.gcAfterExe);
-        }
         return indexDB_->GetProperty(property, value);
     };
 
@@ -235,7 +255,6 @@ namespace leveldb {
     }
 
     Status VlogDBImpl::GarbageCollect(size_t size) {
-        uint64_t startMicros = NowMiros();
         size_t done = 0;
         int keySize;
         int valueSize;
@@ -244,6 +263,7 @@ namespace leveldb {
         Status s;
         std::cerr << "gc" << size << std::endl;
         while (headVLogNum_ != lastVlogNum_) {
+            uint64_t startMicros = NowMiros();
             FILE *gcVlog = OpenVlog(headVLogNum_);
             fseek(gcVlog, 0, SEEK_SET);
             while (2 == fscanf(gcVlog, "%d$%d$", &keySize, &valueSize)) {
@@ -281,10 +301,10 @@ namespace leveldb {
             headVLogNum_++;
             //save head vlog number
             indexDB_->Put(leveldb::WriteOptions(), "headVlogNum", std::to_string(headVLogNum_));
+            STATS::Time(STATS::GetInstance()->gcTime, startMicros, NowMiros());
             if (done > size) break;
         }
-        STATS::Time(STATS::GetInstance()->gcTime, startMicros, NowMiros());
-        std::cerr << "done " << done << std::endl;
+        std::cerr << "done " << done <<"byte"<< std::endl;
         return s;
     }
 

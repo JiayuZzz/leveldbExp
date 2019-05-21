@@ -973,6 +973,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
       if (last_sequence_for_key <= compact->smallest_snapshot) {
         // Hidden by an newer entry for same user key
         drop = true;    // (A)
+                /*
         uint64_t starBuildGc = NowMiros();
         std::string key = input->key().ToString();
         key = key.substr(0,key.size()-8);
@@ -996,6 +997,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
             }
         }
         STATS::Time(STATS::GetInstance()->gcTable,starBuildGc,NowMiros());
+                 */
       } else if (ikey.type == kTypeDeletion &&
                  ikey.sequence <= compact->smallest_snapshot &&
                  compact->compaction->IsBaseLevelForKey(ikey.user_key)) {
@@ -1049,9 +1051,11 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
     input->Next();
     STATS::Time(STATS::GetInstance()->compactionFindNext,startNext,NowMiros());
   }
+  /*
   for(auto & drop : dropped) {
     gctable_->Add(drop.first,drop.second.first,drop.second.second);
   }
+   */
   STATS::Time(STATS::GetInstance()->compactionIterTime,startIter,NowMiros());
 
   if (status.ok() && shutting_down_.Acquire_Load()) {

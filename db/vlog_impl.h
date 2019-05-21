@@ -17,12 +17,16 @@ namespace leveldb {
         VlogDBImpl(VlogOptions &options, const std::string &dbname, const std::string &vlogname, Status &s);
 
         // Implementations of the VlogDB interface
-        virtual Status Put(const WriteOptions writeOptions, const std::string &key, const std::string &val);
-        virtual Status Get(const ReadOptions readOptions, const std::string &key, std::string *val);
-        virtual Status Delete(const WriteOptions writeOptions, const std::string &key);
-        virtual size_t Scan(const ReadOptions readOptions, const std::string &start, size_t num, std::vector<std::string> &keys,
+        virtual Status Put(const WriteOptions& writeOptions, const std::string &key, const std::string &val);
+        virtual Status Get(const ReadOptions& readOptions, const std::string &key, std::string *val);
+        virtual Status Delete(const WriteOptions& writeOptions, const std::string &key);
+        virtual size_t Scan(const ReadOptions& readOptions, const std::string &start, size_t num, std::vector<std::string> &keys,
                             std::vector<std::string> &values);
         virtual bool GetProperty(const Slice& property, std::string* value);
+
+        virtual Iterator* NewIterator(const ReadOptions& readOptions){
+            return indexDB_->NewIterator(readOptions);
+        }
 
         ~VlogDBImpl();
 

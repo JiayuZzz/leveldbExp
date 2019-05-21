@@ -42,7 +42,7 @@ namespace leveldb {
               tmp_batch_(new WriteBatch) {
         nextVlogNum_ = 0;
         visited = std::set<int>();
-        openedVlog_ = std::unordered_map<int, FILE*>();
+        openedVlog_ = std::unordered_map<int, FILE *>();
         mem_ = new MemTable(internal_comparator_);
         mem_->Ref();
         has_imm_.Release_Store(nullptr);
@@ -212,8 +212,8 @@ namespace leveldb {
         STATS::TimeAndCount(STATS::GetInstance()->readVlogStat, startMicros, NowMiros());
         return s;
     }
-
-/*
+/* single value read scan */
+    /*
     size_t ExpDBImpl::Scan(const leveldb::ReadOptions readOptions, const std::string &start, size_t num,
                            std::vector<std::string> &keys, std::vector<std::string> &values) {
         uint64_t startMicros = NowMiros();
@@ -228,43 +228,44 @@ namespace leveldb {
         iter->Seek(start);
 
         if (iter->Valid()) {
-            // for thread join
+//            for
+//            thread join
             std::future<Status> s[num];
-//            std::cerr << "begin scan\n";
+            //            std::cerr << "begin scan\n";
             uint64_t iterStart = NowMiros();
             for (; i < num && iter->Valid(); i++) {
                 keys[i] = iter->key().ToString();
                 valueInfos[i] = iter->value().ToString();
-//                std::cerr<<"add task\n";
+                //                std::cerr<<"add task\n";
                 uint64_t assignStart = NowMiros();
                 s[i] = threadPool_->addTask(&ExpDBImpl::readValue, this, std::ref(valueInfos[i]), &values[i]);
-                STATS::Time(STATS::GetInstance()->assignThread,assignStart,NowMiros());
-//                std::cerr<<"finish add\n";
+                STATS::Time(STATS::GetInstance()->assignThread, assignStart, NowMiros());
+                //                std::cerr<<"finish add\n";
                 iter->Next();
                 if (!iter->Valid()) std::cerr << "not valid\n";
             }
-            delete(iter);
-            STATS::Time(STATS::GetInstance()->scanVlogIter,iterStart,NowMiros());
+            STATS::Time(STATS::GetInstance()->scanVlogIter, iterStart, NowMiros());
             // wait for all threads to complete
             uint64_t wait = NowMiros();
-            for(auto &fs:s) {
+            for (auto &fs:s) {
                 try {
                     fs.wait();
-                // if no that many keys
-                } catch (const std::future_error &e){
+                    // if no that many keys
+                } catch (const std::future_error &e) {
                     break;
                 }
             }
             STATS::Time(STATS::GetInstance()->waitScanThreadsFinish, wait, NowMiros());
-//            std::cerr<<"end scan\n";
+            //            std::cerr<<"end scan\n";
         }
-        STATS::TimeAndCount(STATS::GetInstance()->scanVlogStat,startMicros,NowMiros());
+        STATS::TimeAndCount(STATS::GetInstance()->scanVlogStat, startMicros, NowMiros());
         numVisited += visited.size();
         visited.clear();
         return i;
     }
-    */
-
+     */
+/* multiple value scan */
+//    /*
     size_t ExpDBImpl::Scan(const leveldb::ReadOptions readOptions, const std::string &start, size_t num,
                            std::vector<std::string> &keys, std::vector<std::string> &values) {
         uint64_t startMicros = NowMiros();
@@ -287,6 +288,15 @@ namespace leveldb {
             for (; i < num && iter->Valid(); i++) {
                 keys[i] = iter->key().ToString();
                 valueInfos[i] = iter->value().ToString();
+                int filenum;
+                size_t offset;
+                size_t size;
+                parseValueInfo(valueInfos[i],filenum,offset,size);
+                FILE* f = OpenVlog(filenum);
+
+                uint64_t startAdvice = NowMiros();
+                posix_fadvise(fileno(f),offset,size,POSIX_FADV_RANDOM|POSIX_FADV_WILLNEED);
+                STATS::Time(STATS::GetInstance()->fadviceTime, startAdvice, NowMiros());
 //                std::cerr<<"add task\n";
                 if ((i % (sep) == 0 && i != 0) || i == num - 1) {
                     uint64_t assignStart = NowMiros();
@@ -319,7 +329,7 @@ namespace leveldb {
         numVisited += visited.size();
         return i;
     }
-
+//     */
     Status ExpDBImpl::ReadValuesForScan(const std::vector<std::string> &valueInfos, int begin, int end,
                                         std::vector<std::string> &vals) {
         int vlogNum;
@@ -337,7 +347,7 @@ namespace leveldb {
                 if (visited.find(vlogNum) == visited.end()) visited.insert(vlogNum);
                 */
 
-            //readahead(fileno(f), (offset / 8096) * 8096, 8096);  // each file only readahead once
+//            readahead(fileno(f), (offset / 8096) * 8096, 8096);  // each file only readahead once
 
             //readahead(fileno(f), (offset / 4096) * 4096, 4096);  // each file only readahead once
             size_t got = pread(fileno(f), value, valueSize, offset);
@@ -505,23 +515,26 @@ namespace leveldb {
     }
 
     FILE *ExpDBImpl::OpenVlog(int vlogNum) {
+        uint64_t startMicros = NowMiros();
         std::string filename = vlogDir_ + "/" + std::to_string(vlogNum);
         fileMutex_.Lock();
-        if (openedVlog_.find(vlogNum)==openedVlog_.end()) {
+        if (openedVlog_.find(vlogNum) == openedVlog_.end()) {
             openedVlog_[vlogNum] = fopen(filename.c_str(), "a+");
         }
-        FILE* f = openedVlog_[vlogNum];
+        FILE *f = openedVlog_[vlogNum];
         fileMutex_.Unlock();
+        STATS::Time(STATS::GetInstance()->openValueFile,startMicros,NowMiros());
         return f;
     }
 
-    FILE* ExpDBImpl::NewVlog() {
-        FILE* f = OpenVlog(nextVlogNum_++);
+    FILE *ExpDBImpl::NewVlog() {
+        FILE *f = OpenVlog(nextVlogNum_++);
         indexDB_->Put(leveldb::WriteOptions(), "nextVlogNum", std::to_string(nextVlogNum_));
         return f;
     }
 
     Status ExpDBImpl::readValue(std::string &valueInfo, std::string *val) {
+        uint64_t startMicros = NowMiros();
         Status s;
         // get file number, offset and value size
         int vlogNum;
@@ -537,6 +550,7 @@ namespace leveldb {
             std::cerr << "get value error" << std::endl;
         }
         val->assign(value, valueSize);
+        STATS::Time(STATS::GetInstance()->readValueFile,startMicros,NowMiros());
         return s;
     }
 
