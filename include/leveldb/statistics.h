@@ -29,6 +29,7 @@ namespace leveldb {
         statType readVlogStat;
         statType scanVlogStat;
         statType writeVlogStat;
+        statType writeVtableStat;
         uint64_t writeLog;
         uint64_t waitFlush;
         uint64_t scanVlogIter;
@@ -52,6 +53,7 @@ namespace leveldb {
         uint64_t flushTable;
         uint64_t writeDiskSize;
         uint64_t vlogWriteDisk;
+        uint64_t vTableWriteDisk;
         uint64_t finishTable;
         uint64_t lsmIOTime;
         uint64_t generateFilterTime;
@@ -130,11 +132,13 @@ namespace leveldb {
             double scanTime = scanVlogStat.second;
             double iterTime = scanVlogIter;
             double assign = assignThread;
-            printf("Total vlogdb write time: %.2f s, count: %u, write latency: %.2f us\n", writeTime / 1000000,
+            printf("Total vlog write time: %.2f s, count: %u, write latency: %.2f us\n", writeTime / 1000000,
                    writeCnt, writeTime / writeCnt);
-            printf("Total vlogdb read time: %.2f s, count: %u, read latency: %.2f us\n", readTime / 1000000, readCnt,
+            printf("Total vlog read time: %.2f s, count: %u, read latency: %.2f us\n", readTime / 1000000, readCnt,
                    readTime / readCnt);
-            printf("Total vlogdb scan time:%.2f s, count: %u, scan latency: %.2f us\n", scanTime / 1000000, scanCnt,
+            printf("Total vtable write time: %.2f s, count: %u, write latency: %.2f us\n", writeVtableStat.second / 1000000.0,
+                   writeVtableStat.first, (double)writeVtableStat.second  / writeVtableStat.first);
+            printf("Total scan time:%.2f s, count: %u, scan latency: %.2f us\n", scanTime / 1000000, scanCnt,
                    scanTime / scanCnt);
             printf("Vtable write buffer time:%.2f s\n",vtableWriteBuffer/1000000.0);
             printf("Vlog scan LSM-Tree iter time: %.2f s\n", iterTime / 1000000);
@@ -149,6 +153,7 @@ namespace leveldb {
             printf("Write value time during gc: %.2f\n", (double)gcWriteValue / 1000000);
             printf("Write lsm time during gc: %.2f\n", (double)gcWriteLSM / 1000000);
             printf("vlog write disk size: %.2fMB\n",vlogWriteDisk/1000000.0);
+            printf("vtable write disk size: %.2fMB\n",vTableWriteDisk/1000000.0);
         }
 
 

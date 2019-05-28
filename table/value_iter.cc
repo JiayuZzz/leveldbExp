@@ -58,7 +58,6 @@ namespace leveldb {
                 getline(f, value_, '~');
             }
         }
-        std::cerr<<"exit next\n";
         key_ = "";
     }
 

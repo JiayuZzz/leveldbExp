@@ -166,9 +166,13 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname)
   std::cerr<<"threads:"<<options_.exp_ops.numThreads<<std::endl;
   threadPool_->addTask(&DBImpl::scheduleMerge,this);
   threadPool_->addTask(&DBImpl::scheduleGC,this);
+  // TODO temp
+  //lastVtable_ = 70000;
 }
 
 DBImpl::~DBImpl() {
+    //TODO remove this
+  delete threadPool_;
   // Wait for background work to finish
   mutex_.Lock();
   shutting_down_.Release_Store(this);  // Any non-null value is ok
@@ -1617,7 +1621,7 @@ Status DB::Open(const Options& options, const std::string& dbname,
   } else {
     delete impl;
   }
-  impl->RecoverMeta();
+  //impl->RecoverMeta();
   return s;
 }
 
@@ -1694,15 +1698,13 @@ void DBImpl::readValueForScan(std::vector<std::string> &values, leveldb::BlockQu
 FILE* DBImpl::openValueFile(const std::string &filename) {
   uint64_t startMicro = NowMiros();
   fileMutex_.Lock();
-  if(openedFiles_.find(filename)==openedFiles_.end()||openedFiles_[filename]==nullptr){
-    openedFiles_[filename] = fopen(valueFilePath(filename).c_str(), "a+");
-  }
   FILE* f = openedFiles_[filename];
+  if(!f){
+    f = fopen(valueFilePath(filename).c_str(), "a+");
+    openedFiles_[filename] = f;
+  }
   fileMutex_.Unlock();
 //  std::cerr<<"open "<<filename<<std::endl;
-  if(!f) {
-    std::cerr<<"open error "<<strerror(errno)<<std::endl;
-  }
   STATS::Time(STATS::GetInstance()->openFileTime, startMicro, NowMiros());
   return f;
 }
@@ -1807,7 +1809,7 @@ Status DBImpl::Scan(const leveldb::ReadOptions &options, const std::string &star
     readDone.wait();
     STATS::Time(STATS::GetInstance()->waitScanThreadsFinish, wait, NowMiros());
     STATS::TimeAndCount(STATS::GetInstance()->scanVlogStat, startScan, NowMiros());
-    threadPool_->addTask(&DBImpl::mayScheduleMerge,this,fileReadSize);
+    //threadPool_->addTask(&DBImpl::mayScheduleMerge,this,fileReadSize);
     return Status();
 }
 
@@ -1818,12 +1820,12 @@ void DBImpl::mayScheduleMerge(std::shared_ptr<std::unordered_map<std::string, si
     std::vector<std::string> toSchedule;
     for(const auto& item:*fileReadSize){
         sum+=item.second;
-        if(item.second<2048) {
+        if(item.second<3000) {
           toSchedule.push_back(item.first);
           canMerge+=item.second;
         }
     }
-    if(sum/fileReadSize->size()<4096&&canMerge>16000){
+    if(sum/fileReadSize->size()<4096&&canMerge>10000){
         for(const auto file:toSchedule){
             toMerge_.Put(file);
         }
@@ -1836,7 +1838,8 @@ void DBImpl::scheduleMerge(){
     while(1){
         std::string filename = toMerge_.Get();
         if(merging->find(filename)==merging->end()) toSchedule->insert(filename);
-        if(toSchedule->size()>100&&merging->empty()) {
+        if(toSchedule->size()>50&&merging->empty()) {
+            std::cerr<<"schedule merge\n";
             merging = toSchedule;
             toSchedule = std::make_shared<std::unordered_set<std::string>>();
             threadPool_->addTask(&DBImpl::mergeVtables,this,std::ref(merging));
@@ -1850,7 +1853,6 @@ void DBImpl::scheduleGC() {
     while(1){
         std::string filename = toGC_.Get();
         if(inGC->find(filename)==inGC->end()) toGC->insert(filename);
-        std::cerr<<"to gc :"<<toGC->size()<<std::endl;
         if(toGC->size()>options_.exp_ops.numFileGC&&inGC->empty()){
             inGC = toGC;
             toGC = std::make_shared<std::unordered_set<std::string>>();
@@ -1906,6 +1908,8 @@ void DBImpl::GarbageCollect(std::shared_ptr<std::unordered_set<std::string>> inG
         Put(leveldb::WriteOptions(),iter->key(),conbineValueInfo(gcfile,offset,vsize));
         STATS::Time(STATS::GetInstance()->gcWriteLSM,startWriteLSM,NowMiros());
         if(offset>=options_.exp_ops.tableSize) { // next gc file
+//          fsync(fileno(f));
+          closeValueFile(gcfile);
           lastGCFile_+=1;
           gcfile = conbineStr({"g",std::to_string(lastGCFile_.load())});
           f = openValueFile(gcfile);
@@ -1938,13 +1942,17 @@ std::string DBImpl::vlogPathname(size_t filenum) {
 }
 
 size_t DBImpl::writeVlog(const std::string &key, const std::string &value) {
+    uint64_t startMicros = NowMiros();
     fwrite((conbineKVPair(key,value)).c_str(),key.size()+value.size()+2,1,writingVlog_);
     size_t offset = ftell(writingVlog_);
     if(offset>=options_.exp_ops.tableSize){
+//      fsync(fileno(writingVlog_));
+      STATS::Add(STATS::GetInstance()->vlogWriteDisk,ftell(writingVlog_));
       lastVlog_+=1;
       fclose(writingVlog_);
       writingVlog_ = fopen(vlogPathname(lastVlog_).c_str(),"a+");
     }
+    STATS::TimeAndCount(STATS::GetInstance()->writeVlogStat,startMicros,NowMiros());
     return offset-value.size()-1;
 }
 
@@ -1983,7 +1991,12 @@ Status DBImpl::mergeVtables(std::shared_ptr<std::unordered_set<std::string>> inM
   std::cerr<<"merge done\n";
   for(const auto& file:*inMerge) deleteFile(file);
   delete iter;
+  //todo remove these
+  std::string stats;
+  GetProperty("leveldb.stats",&stats);
+  std::cout<<stats<<std::endl;
   inMerge->clear();
+
   return Status();
 }
 
