@@ -167,7 +167,7 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname)
   threadPool_->addTask(&DBImpl::scheduleMerge,this);
   threadPool_->addTask(&DBImpl::scheduleGC,this);
   // TODO temp
-  //lastVtable_ = 70000;
+  //lastVtable_ = 30000;
 }
 
 DBImpl::~DBImpl() {
@@ -1002,6 +1002,8 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
           else metaTable_[filename].garbageR += std::stod(size) / options_.exp_ops.tableSize;
           // TODO optimize
           if (metaTable_[filename].garbageR > options_.exp_ops.gcRatio ) {
+              // TODO reliability
+            metaTable_.erase(filename);
             toGC_.Put(filename);
           }
         }
@@ -1890,7 +1892,7 @@ void DBImpl::GarbageCollect(std::shared_ptr<std::unordered_set<std::string>> inG
       std::string filepath = valueFilePath(filename);
         if(access(filepath.c_str(),F_OK)!=0){
             std::cerr<<"has been gced\n";
-            metaTable_.erase(filename);
+            //metaTable_.erase(filename);
             std::cerr<<"continue\n";
             continue;
         }
@@ -1920,7 +1922,7 @@ void DBImpl::GarbageCollect(std::shared_ptr<std::unordered_set<std::string>> inG
       delete iter;
       closeValueFile(filename);
       deleteFile(filename);
-      metaTable_.erase(filename);
+      //metaTable_.erase(filename);
       std::cerr<<"gc done, gc "<<gcSize<<" write back "<<gcWriteBack<<std::endl;
       STATS::Add(STATS::GetInstance()->gcWritebackBytes,gcWriteBack);
       STATS::Add(STATS::GetInstance()->gcSize,gcSize);
