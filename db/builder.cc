@@ -27,8 +27,10 @@ Status BuildTable(const std::string& dbname,
   meta->file_size = 0;
   iter->SeekToFirst();
 
+  std::string prefix(1,'a'+options.exp_ops.mergeLevel);
+
   std::string fname = TableFileName(dbname, meta->number);
-  std::string vtablename = conbineStr({"t",std::to_string(++lastVtable)});
+  std::string vtablename = conbineStr({prefix,std::to_string(++lastVtable)});
   std::string vtablepathname = conbineStr({dbname,"/values/",vtablename});
 
   if (iter->Valid()) {
@@ -58,7 +60,7 @@ Status BuildTable(const std::string& dbname,
         // finish this vtable
         if(offset>options.exp_ops.tableSize){
           vtableBuilder->Finish();
-          vtablename = conbineStr({"t",std::to_string(++lastVtable)});
+          vtablename = conbineStr({prefix,std::to_string(++lastVtable)});
           vtablepathname = conbineStr({dbname,"/values/",vtablename});
           vtableBuilder->NextFile(vtablepathname);
         }
@@ -68,7 +70,6 @@ Status BuildTable(const std::string& dbname,
     // Finish and check for builder errors
     if(!vtableBuilder->Done()){
       vtableBuilder->Finish();
-      std::cerr<<"done builder\n";
     }
     s = builder->Finish();
     if (s.ok()) {

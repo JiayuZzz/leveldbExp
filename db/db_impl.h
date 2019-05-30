@@ -239,7 +239,6 @@ class DBImpl : public DB {
   Status readValueWithAddress(std::string& valueInfo);
   std::string readValue(FILE* f, size_t offset, size_t size);
   std::string valueFilePath(const std::string& filename);
-  std::string vtablePathname(size_t filenum);
   std::string vlogPathname(size_t filenum);
   void readValueForScan(std::vector<std::string>& values, BlockQueue<ValueLoc>& locs);
   size_t nextVtable(){

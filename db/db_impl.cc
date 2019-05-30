@@ -741,7 +741,8 @@ void DBImpl::BackgroundCompaction() {
   Status status;
   if (c == nullptr) {
     // Nothing to do
-  } else if (!is_manual && c->IsTrivialMove()) {
+      // Selective: no trivialmove for merge level
+  } else if (!is_manual && c->IsTrivialMove() && c->level()!=options_.exp_ops.mergeLevel) {
     // Move file to next level
     assert(c->num_input_files(0) == 1);
     FileMetaData* f = c->input(0, 0);
@@ -934,6 +935,18 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
 
   // Release mutex while we're actually doing the compaction work
   mutex_.Unlock();
+  int level = compact->compaction->level();
+  char levelPrefix = 'a'+level;
+//  std::cerr<<"level prefix:"<<levelPrefix<<std::endl;
+  std::string nextprefix(1,levelPrefix+1);
+  VtableBuilder* vtableBuilder = new VtableBuilder();
+  std::string vtablename;
+  std::string vtablepathname;
+  if(levelPrefix=='a'+options_.exp_ops.mergeLevel) {
+      vtablename = conbineStr({nextprefix,std::to_string(++lastVtable_)});
+      vtablepathname = valueFilePath(vtablename);
+      vtableBuilder->NextFile(vtablepathname);
+  }
 
   Iterator* input = versions_->MakeInputIterator(compact->compaction);
   input->SeekToFirst();
@@ -1034,6 +1047,25 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
 #endif
 
     if (!drop) {
+      // merge vtables
+      // TODO: GC
+      std::string value = input->value().ToString();
+      if(value.back()=='~'&&value[0]==levelPrefix){
+        std::string filename;
+        size_t offset, size;
+        parseValueInfo(value,filename,offset,size);
+//        std::cerr<<"value info:"<<value<<std::endl;
+        offset = vtableBuilder->Add(key,readValue(openValueFile(filename),offset,size));
+        value = conbineValueInfo(vtablename,offset,size);
+        if(offset>options_.exp_ops.tableSize){
+          vtableBuilder->Finish();
+          vtablename = conbineStr({nextprefix,std::to_string(++lastVtable_)});
+          vtablepathname = valueFilePath(vtablename);
+          vtableBuilder->NextFile(vtablepathname);
+        }
+      }
+
+
       // Open output file if necessary
       if (compact->builder == nullptr) {
         status = OpenCompactionOutputFile(compact);
@@ -1045,7 +1077,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
         compact->current_output()->smallest.DecodeFrom(key);
       }
       compact->current_output()->largest.DecodeFrom(key);
-      compact->builder->Add(key, input->value());
+      compact->builder->Add(key, value);
 
       // Close output file if it is big enough
       if (compact->builder->FileSize() >=
@@ -1061,6 +1093,8 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
     input->Next();
     STATS::Time(STATS::GetInstance()->compactionFindNext,startNext,NowMiros());
   }
+  if(!vtableBuilder->Done()) vtableBuilder->Finish();
+  delete vtableBuilder;
   STATS::Time(STATS::GetInstance()->compactionIterTime,startIter,NowMiros());
 
   if (status.ok() && shutting_down_.Acquire_Load()) {
@@ -1935,10 +1969,6 @@ std::string DBImpl::valueFilePath(const std::string &filename) {
     return conbineStr({dbname_,"/values/",filename});
 }
 
-std::string DBImpl::vtablePathname(size_t filenum) {
-    return valueFilePath(conbineStr({"t",std::to_string(filenum)}));
-}
-
 std::string DBImpl::vlogPathname(size_t filenum) {
   return valueFilePath(conbineStr({"l",std::to_string(filenum)}));
 }
@@ -1990,6 +2020,7 @@ Status DBImpl::mergeVtables(std::shared_ptr<std::unordered_set<std::string>> inM
   if(!builder->Done()){
     builder->Finish();
   }
+  delete builder;
   std::cerr<<"merge done\n";
   for(const auto& file:*inMerge) deleteFile(file);
   delete iter;

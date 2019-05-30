@@ -13,12 +13,13 @@ namespace leveldb {
     VtableBuilder::VtableBuilder(const std::string& filepath):file(fopen(filepath.c_str(),"w")),finished(false),pos(0) {
     }
 
-    VtableBuilder::~VtableBuilder() {}
+    VtableBuilder::VtableBuilder():file(nullptr),finished(true),pos(0){}
 
     size_t VtableBuilder::Add(const leveldb::Slice &key, const leveldb::Slice &value) {
         uint64_t startMicro = NowMiros();
         size_t ret = pos+key.size()+1;
         pos = ret+value.size()+1;
+        // TODO: pre alloc buffer space
         buffer+=conbineKVPair(key.ToString(),value.ToString());
         STATS::Time(STATS::GetInstance()->vtableWriteBuffer,startMicro,NowMiros());
         return ret;
@@ -34,6 +35,7 @@ namespace leveldb {
         STATS::Add(STATS::GetInstance()->vTableWriteDisk,ftell(file));
         fclose(file);
         STATS::TimeAndCount(STATS::GetInstance()->writeVtableStat, startMicros, NowMiros());
+        finished = true;
         return write==buffer.size()?Status():Status::IOError("Write Vtalbe Error");
     }
 

@@ -12,11 +12,14 @@
 namespace leveldb {
 
 // vtable format: key1$value1$key2$value2...
+// vtable name: ('a'+level)+filenum
 class LEVELDB_EXPORT VtableBuilder {
 public:
     VtableBuilder(const std::string& filepath);
 
-    ~VtableBuilder();
+    VtableBuilder();
+
+    ~VtableBuilder(){};
 
     size_t Add(const Slice& key, const Slice& value);
 
