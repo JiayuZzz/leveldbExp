@@ -27,7 +27,7 @@ namespace leveldb {
 
     Status VtableBuilder::Finish() {
         uint64_t startMicros = NowMiros();
-        assert(!finished);
+        //assert(!finished);
         size_t write = fwrite(buffer.c_str(), buffer.size(), 1, file);
         buffer.clear();
         pos = 0;

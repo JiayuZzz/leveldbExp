@@ -942,7 +942,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   VtableBuilder* vtableBuilder = new VtableBuilder();
   std::string vtablename;
   std::string vtablepathname;
-  if(levelPrefix=='a'+options_.exp_ops.mergeLevel) {
+  if(levelPrefix>=('a'+options_.exp_ops.mergeLevel)) {
       vtablename = conbineStr({nextprefix,std::to_string(++lastVtable_)});
       vtablepathname = valueFilePath(vtablename);
       vtableBuilder->NextFile(vtablepathname);
@@ -1056,6 +1056,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
         parseValueInfo(value,filename,offset,size);
 //        std::cerr<<"value info:"<<value<<std::endl;
         offset = vtableBuilder->Add(key,readValue(openValueFile(filename),offset,size));
+//        std::cerr<<"add done\n";
         value = conbineValueInfo(vtablename,offset,size);
         if(offset>options_.exp_ops.tableSize){
           vtableBuilder->Finish();
