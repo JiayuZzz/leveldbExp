@@ -23,7 +23,7 @@ public:
 
     size_t Add(const Slice& key, const Slice& value);
 
-    Status Finish();
+    int Finish();
 
     bool Done();
 
@@ -34,6 +34,7 @@ private:
     size_t pos;
     FILE* file;
     bool finished;
+    int num;       // num kv pairs
 };
 
 }

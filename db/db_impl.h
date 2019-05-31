@@ -19,6 +19,7 @@
 #include "unordered_set"
 #include "util/block_queue.h"
 #include "funcs.h"
+#include "valuefile.h"
 
 namespace leveldb {
 
@@ -207,22 +208,6 @@ class DBImpl : public DB {
     return internal_comparator_.user_comparator();
   }
 
-  /* selective kv */
-  struct ValueLoc {
-      FILE* f;
-      size_t offset;
-      size_t size;
-
-      ValueLoc(){}
-      ValueLoc(FILE* file, size_t o, size_t s):f(file),offset(o),size(s){}
-  };
-
-  struct VfileMeta {
-    double garbageR;   //garbage ratio;
-
-    VfileMeta(double g):garbageR(g){}
-    VfileMeta():garbageR(0){}
-  };
   std::atomic<size_t> lastVtable_;
   std::atomic<size_t> lastVlog_;
   std::atomic<size_t> lastGCFile_;
@@ -230,11 +215,13 @@ class DBImpl : public DB {
   std::unordered_map<std::string ,FILE*> openedFiles_;
   port::Mutex fileMutex_;   // protect opened files
   ThreadPool* threadPool_;
-  //std::unordered_set<std::string>* toGC_;
-  std::unordered_map<std::string ,VfileMeta> metaTable_;
+
+  std::unordered_map<std::string, VfileMeta> metaTable_;
+
   BlockQueue<std::string> toMerge_;
   BlockQueue<std::string> toGC_;
 
+  void updateMeta(const std::string& filename, int invalid);
 
   Status readValueWithAddress(std::string& valueInfo);
   std::string readValue(FILE* f, size_t offset, size_t size);

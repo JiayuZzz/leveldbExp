@@ -226,7 +226,7 @@ class Repairer {
     Iterator* iter = mem->NewIterator();
     std::atomic<size_t> a;
     std::cerr<<"repair!!!!!!!!!!!!!!!!!!!!!!!!!\n"<<std::endl;
-    status = BuildTable(dbname_, env_, options_, table_cache_, iter, &meta, a);
+    //status = BuildTable(dbname_, env_, options_, table_cache_, iter, &meta, a);
     delete iter;
     mem->Unref();
     mem = nullptr;

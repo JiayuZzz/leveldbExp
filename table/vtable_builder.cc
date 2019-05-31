@@ -10,7 +10,7 @@
 #include "db/funcs.h"
 
 namespace leveldb {
-    VtableBuilder::VtableBuilder(const std::string& filepath):file(fopen(filepath.c_str(),"w")),finished(false),pos(0) {
+    VtableBuilder::VtableBuilder(const std::string& filepath):file(fopen(filepath.c_str(),"w")),finished(false),pos(0),num(0) {
     }
 
     VtableBuilder::VtableBuilder():file(nullptr),finished(true),pos(0){}
@@ -21,27 +21,29 @@ namespace leveldb {
         pos = ret+value.size()+1;
         // TODO: pre alloc buffer space
         buffer+=conbineKVPair(key.ToString(),value.ToString());
+        num++;
         STATS::Time(STATS::GetInstance()->vtableWriteBuffer,startMicro,NowMiros());
         return ret;
     }
 
-    Status VtableBuilder::Finish() {
+    int VtableBuilder::Finish() {
         uint64_t startMicros = NowMiros();
         //assert(!finished);
         size_t write = fwrite(buffer.c_str(), buffer.size(), 1, file);
-        buffer.clear();
-        pos = 0;
 //        fsync(fileno(file));
         STATS::Add(STATS::GetInstance()->vTableWriteDisk,ftell(file));
         fclose(file);
         STATS::TimeAndCount(STATS::GetInstance()->writeVtableStat, startMicros, NowMiros());
         finished = true;
-        return write==buffer.size()?Status():Status::IOError("Write Vtalbe Error");
+        return num;
     }
 
     void VtableBuilder::NextFile(const std::string& filepath) {
         file = fopen(filepath.c_str(),"w");
         finished = false;
+        buffer.clear();
+        num = 0;
+        pos = 0;
     }
 
     bool VtableBuilder::Done() {

@@ -7,6 +7,8 @@
 
 #include "leveldb/status.h"
 #include "atomic"
+#include "valuefile.h"
+#include "unordered_map"
 
 namespace leveldb {
 
@@ -29,7 +31,7 @@ Status BuildTable(const std::string& dbname,
                   TableCache* table_cache,
                   Iterator* iter,
                   FileMetaData* meta,
-                  std::atomic<size_t>& lastVtable);
+                  std::atomic<size_t>& lastVtable,std::unordered_map<std::string, VfileMeta>& metaTable);
 
 }  // namespace leveldb
 

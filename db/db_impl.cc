@@ -525,7 +525,7 @@ Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
   Status s;
   {
     mutex_.Unlock();
-    s = BuildTable(dbname_, env_, options_, table_cache_, iter, &meta, lastVtable_);
+    s = BuildTable(dbname_, env_, options_, table_cache_, iter, &meta, lastVtable_, metaTable_);
     mutex_.Lock();
   }
 
@@ -935,6 +935,8 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
 
   // Release mutex while we're actually doing the compaction work
   mutex_.Unlock();
+
+  /* selectiveKV */
   int level = compact->compaction->level();
   char levelPrefix = 'a'+level;
 //  std::cerr<<"level prefix:"<<levelPrefix<<std::endl;
@@ -947,6 +949,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
       vtablepathname = valueFilePath(vtablename);
       vtableBuilder->NextFile(vtablepathname);
   }
+  std::unordered_map<std::string, int> invalidated;
 
   Iterator* input = versions_->MakeInputIterator(compact->compaction);
   input->SeekToFirst();
@@ -1004,21 +1007,12 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
         uint64_t startMeta = NowMiros();
         if(input->value().ToString().back()=='~') {
           std::string filename;
-          std::string offset;
-          std::string size;
           std::stringstream ss(input->value().ToString());
           std::getline(ss, filename, '~');
-          std::getline(ss, offset, '~');
-          std::getline(ss, size, '~');
-          if (metaTable_.find(filename) == metaTable_.end())
-            metaTable_[filename] = VfileMeta(std::stod(size) / options_.exp_ops.tableSize);
-          else metaTable_[filename].garbageR += std::stod(size) / options_.exp_ops.tableSize;
-          // TODO optimize
-          if (metaTable_[filename].garbageR > options_.exp_ops.gcRatio ) {
-              // TODO reliability
-            metaTable_.erase(filename);
-            toGC_.Put(filename);
-          }
+          auto it = invalidated.find(filename);
+          if(it!=invalidated.end()) {
+            it->second+=1;
+          } else invalidated[filename] = 1;
         }
         STATS::Time(STATS::GetInstance()->gcMeta,startMeta,NowMiros());
       } else if (ikey.type == kTypeDeletion &&
@@ -1059,11 +1053,17 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
 //        std::cerr<<"add done\n";
         value = conbineValueInfo(vtablename,offset,size);
         if(offset>options_.exp_ops.tableSize){
-          vtableBuilder->Finish();
+          int cnt = vtableBuilder->Finish();
+          metaTable_[vtablename] = VfileMeta(cnt);
           vtablename = conbineStr({nextprefix,std::to_string(++lastVtable_)});
           vtablepathname = valueFilePath(vtablename);
           vtableBuilder->NextFile(vtablepathname);
         }
+        auto it = invalidated.find(filename);
+        if(it!=invalidated.end()) {
+          it->second+=1;
+//          std::cerr<<"invalidate "<<invalidated[filename]<<std::endl;
+        } else invalidated[filename] = 1;
       }
 
 
@@ -1094,8 +1094,14 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
     input->Next();
     STATS::Time(STATS::GetInstance()->compactionFindNext,startNext,NowMiros());
   }
-  if(!vtableBuilder->Done()) vtableBuilder->Finish();
+  if(!vtableBuilder->Done()) {
+    int cnt = vtableBuilder->Finish();
+    metaTable_[vtablename] = VfileMeta(cnt);
+  }
   delete vtableBuilder;
+  for(auto& p:invalidated){
+    updateMeta(p.first,p.second);
+  }
   STATS::Time(STATS::GetInstance()->compactionIterTime,startIter,NowMiros());
 
   if (status.ok() && shutting_down_.Acquire_Load()) {
@@ -1990,6 +1996,7 @@ size_t DBImpl::writeVlog(const std::string &key, const std::string &value) {
 }
 
 Status DBImpl::deleteFile(const std::string &filename){
+      std::cerr<<"delete "<<filename<<std::endl;
       return remove(valueFilePath(filename).c_str()) == 0 ? Status() : Status().IOError("delete vlog error\n");
     }
 
@@ -2032,6 +2039,27 @@ Status DBImpl::mergeVtables(std::shared_ptr<std::unordered_set<std::string>> inM
   inMerge->clear();
 
   return Status();
+}
+
+void DBImpl::updateMeta(const std::string &filename, int invalid) {
+  auto it = metaTable_.find(filename);
+  if(it!=metaTable_.end()) {
+    auto& item = it->second;
+    invalid += item.invalidKV;
+    std::cerr<<filename<<" invalid "<<invalid<<"/"<<item.numKV<<std::endl;
+    if (invalid == item.numKV) {
+      deleteFile(filename);
+      metaTable_.erase(it);
+    } else {
+      if (filename[0] == 'l' && (double) invalid / item.numKV > options_.exp_ops.gcRatio) {
+        //TODO: reliability
+        metaTable_.erase(filename);
+        toGC_.Put(filename);
+      } else {
+        item.invalidKV = invalid;
+      }
+    }
+  }
 }
 
 }  // namespace leveldb

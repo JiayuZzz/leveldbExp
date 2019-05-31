@@ -22,7 +22,7 @@ Status BuildTable(const std::string& dbname,
                   TableCache* table_cache,
                   Iterator* iter,
                   FileMetaData* meta,
-                  std::atomic<size_t>& lastVtable) {
+                  std::atomic<size_t>& lastVtable, std::unordered_map<std::string, VfileMeta>& metaTable) {
   Status s;
   meta->file_size = 0;
   iter->SeekToFirst();
@@ -59,7 +59,8 @@ Status BuildTable(const std::string& dbname,
         builder->Add(key, valueInfo);
         // finish this vtable
         if(offset>options.exp_ops.tableSize){
-          vtableBuilder->Finish();
+          int cnt = vtableBuilder->Finish();
+          metaTable[vtablename] = VfileMeta(cnt);
           vtablename = conbineStr({prefix,std::to_string(++lastVtable)});
           vtablepathname = conbineStr({dbname,"/values/",vtablename});
           vtableBuilder->NextFile(vtablepathname);
@@ -69,7 +70,8 @@ Status BuildTable(const std::string& dbname,
 
     // Finish and check for builder errors
     if(!vtableBuilder->Done()){
-      vtableBuilder->Finish();
+      int cnt = vtableBuilder->Finish();
+      metaTable[vtablename] = VfileMeta(cnt);
     }
     s = builder->Finish();
     if (s.ok()) {
