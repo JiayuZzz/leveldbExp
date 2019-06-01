@@ -30,7 +30,7 @@ namespace leveldb {
         uint64_t startMicros = NowMiros();
         //assert(!finished);
         size_t write = fwrite(buffer.c_str(), buffer.size(), 1, file);
-//        fsync(fileno(file));
+        fdatasync(fileno(file));
         STATS::Add(STATS::GetInstance()->vTableWriteDisk,ftell(file));
         fclose(file);
         STATS::TimeAndCount(STATS::GetInstance()->writeVtableStat, startMicros, NowMiros());

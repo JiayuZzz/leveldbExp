@@ -63,6 +63,7 @@ namespace leveldb {
         uint64_t fadviceTime;
         uint64_t gcPutBack;
         uint64_t gcMeta;
+        uint64_t getErrorCnt;
 
         static void TimeAndCount(statType &stat, uint64_t start, uint64_t end) {
             stat.first++;
@@ -140,6 +141,7 @@ namespace leveldb {
                    writeVtableStat.first, (double)writeVtableStat.second  / writeVtableStat.first);
             printf("Total scan time:%.2f s, count: %u, scan latency: %.2f us\n", scanTime / 1000000, scanCnt,
                    scanTime / scanCnt);
+            printf("Read value error %lu times\n",getErrorCnt);
             printf("Vtable write buffer time:%.2f s\n",vtableWriteBuffer/1000000.0);
             printf("Vlog scan LSM-Tree iter time: %.2f s\n", iterTime / 1000000);
             printf("Fadvice time: %.2f\n",fadviceTime/1000000.0);

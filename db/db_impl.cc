@@ -172,6 +172,7 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname)
 
 DBImpl::~DBImpl() {
     //TODO remove this
+  toGC_.Put("");
   delete threadPool_;
   // Wait for background work to finish
   mutex_.Lock();
@@ -742,7 +743,7 @@ void DBImpl::BackgroundCompaction() {
   if (c == nullptr) {
     // Nothing to do
       // Selective: no trivialmove for merge level
-  } else if (!is_manual && c->IsTrivialMove() && c->level()!=options_.exp_ops.mergeLevel) {
+  } else if (!is_manual && c->IsTrivialMove() && c->level()<options_.exp_ops.mergeLevel) {
     // Move file to next level
     assert(c->num_input_files(0) == 1);
     FileMetaData* f = c->input(0, 0);
@@ -944,6 +945,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   VtableBuilder* vtableBuilder = new VtableBuilder();
   std::string vtablename;
   std::string vtablepathname;
+  std::cerr<<"compaction level "<<level<<", prefix"<<levelPrefix<<" next prefix "<<nextprefix<<std::endl;
   if(levelPrefix>=('a'+options_.exp_ops.mergeLevel)) {
       vtablename = conbineStr({nextprefix,std::to_string(++lastVtable_)});
       vtablepathname = valueFilePath(vtablename);
@@ -1055,6 +1057,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
         if(offset>options_.exp_ops.tableSize){
           int cnt = vtableBuilder->Finish();
           metaTable_[vtablename] = VfileMeta(cnt);
+          std::cerr<<"output new vtable: "<<vtablename<<std::endl;
           vtablename = conbineStr({nextprefix,std::to_string(++lastVtable_)});
           vtablepathname = valueFilePath(vtablename);
           vtableBuilder->NextFile(vtablepathname);
@@ -1723,7 +1726,8 @@ std::string DBImpl::readValue(FILE* f, size_t offset, size_t size) {
     char value[size+1];
     size_t got = pread(fileno(f),value,size,offset);
     if(got!=size){
-      std::cerr<<"get value error "<< strerror(errno) <<" offset "<<offset<<" size "<<size<<" got "<<got<<std::endl;
+      STATS::Add(STATS::GetInstance()->getErrorCnt,1);
+//      std::cerr<<"get value error "<< strerror(errno) <<" offset "<<offset<<" size "<<size<<" got "<<got<<std::endl;
     }
     std::string ret = std::string(value);
     STATS::Time(STATS::GetInstance()->readValueFile,startMicros,NowMiros());
@@ -1814,6 +1818,7 @@ Status DBImpl::Scan(const leveldb::ReadOptions &options, const std::string &star
     std::future<void> readDone;
     std::vector<std::string> valueInfos;
     size_t cnt = 0;
+
     uint64_t iterStart = NowMiros();
     auto fileReadSize = std::make_shared<std::unordered_map<std::string, size_t>>();
     BlockQueue<ValueLoc> bq;
@@ -1893,13 +1898,18 @@ void DBImpl::scheduleMerge(){
 void DBImpl::scheduleGC() {
     auto toGC = std::make_shared<std::unordered_set<std::string>>();
     auto inGC = std::make_shared<std::unordered_set<std::string>>();
+    std::future<void> ret;
     while(1){
         std::string filename = toGC_.Get();
+        if(filename==""){
+          ret.wait();
+          break;
+        }
         if(inGC->find(filename)==inGC->end()) toGC->insert(filename);
         if(toGC->size()>options_.exp_ops.numFileGC&&inGC->empty()){
             inGC = toGC;
             toGC = std::make_shared<std::unordered_set<std::string>>();
-            threadPool_->addTask(&DBImpl::GarbageCollect,this,inGC);
+            ret = threadPool_->addTask(&DBImpl::GarbageCollect,this,inGC);
         }
     }
 }
