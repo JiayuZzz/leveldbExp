@@ -15,7 +15,7 @@ namespace leveldb {
         int numThreads = 32;
         size_t vlogSize = 128*1024*1024;   // single vlog file max size
         size_t numOpenfile = 50000;
-        size_t gcAfterExe = 0;
+        uint64_t gcAfterExe = 0;
     };
 
     class VlogDB {

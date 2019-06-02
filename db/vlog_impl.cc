@@ -37,6 +37,8 @@ namespace leveldb {
             mkdir(vlogDir.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
         }
         Recover();
+
+	    fprintf(stderr,"gc size: %lu\n",options_.gcAfterExe);
         /*
         if (options_.gcAfterExe > 0) {
             fprintf(stderr,"start gc\n");
@@ -83,13 +85,14 @@ namespace leveldb {
         std::string vlogOffsetStr = std::to_string(vlogOffset);
         std::string indexStr = "";
         appendStr(indexStr, {std::to_string(lastVlogNum_), "$", vlogOffsetStr, "$", valueSizeStr});
-        Status s = indexDB_->Put(writeOptions, key, indexStr);
-        // save tail
         if (ftell(vlog) > options_.vlogSize) {
+            fsync(fileno(vlog));
             lastVlogNum_++;
             indexDB_->Put(writeOptions, "lastVlogNum", std::to_string(lastVlogNum_));
         }
         STATS::TimeAndCount(STATS::GetInstance()->writeVlogStat, startMicro, NowMiros());
+        Status s = indexDB_->Put(writeOptions, key, indexStr);
+        // save tail
         return s;
     }
 

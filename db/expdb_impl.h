@@ -40,6 +40,10 @@ namespace leveldb {
 
         virtual bool GetProperty(const Slice &property, std::string *value);
 
+        virtual Iterator* NewIterator(const ReadOptions& readOptions){
+                return indexDB_->NewIterator(readOptions);
+        }
+
     private:
         struct Writer;
         DB *indexDB_;

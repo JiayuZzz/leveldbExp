@@ -55,6 +55,9 @@ namespace leveldb {
                             std::vector<std::string> &values) = 0;
 
         virtual bool GetProperty(const Slice& property, std::string* value)=0;
+
+        virtual Iterator* NewIterator(const ReadOptions& options) = 0;
+
     };
 }
 

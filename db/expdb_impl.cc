@@ -295,7 +295,7 @@ namespace leveldb {
                 FILE* f = OpenVlog(filenum);
 
                 uint64_t startAdvice = NowMiros();
-                posix_fadvise(fileno(f),offset,size,POSIX_FADV_RANDOM|POSIX_FADV_WILLNEED);
+//                posix_fadvise(fileno(f),offset,size,POSIX_FADV_RANDOM|POSIX_FADV_WILLNEED);
                 STATS::Time(STATS::GetInstance()->fadviceTime, startAdvice, NowMiros());
 //                std::cerr<<"add task\n";
                 if ((i % (sep) == 0 && i != 0) || i == num - 1) {

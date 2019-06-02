@@ -388,7 +388,6 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, bool last_log,
       if (this->status != nullptr && this->status->ok()) *this->status = s;
     }
   };
-
   mutex_.AssertHeld();
 
   // Open the log file
