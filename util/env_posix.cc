@@ -313,20 +313,20 @@ class PosixWritableFile : public WritableFile {
 
   virtual Status Sync() {
     // Ensure new files referred to by the manifest are in the filesystem.
-    uint64_t startSync = NowMiros();
+    uint64_t startSync = NowMicros();
     Status s = SyncDirIfManifest();
     if (!s.ok()) {
-      STATS::Time(STATS::GetInstance()->compactionSync, startSync, NowMiros());
+      STATS::Time(STATS::GetInstance()->compactionSync, startSync, NowMicros());
       return s;
     }
     s = FlushBuffered();
-    startSync = NowMiros();
+    startSync = NowMicros();
     if (s.ok()) {
       if (fdatasync(fd_) != 0) {
         s = PosixError(filename_, errno);
       }
     }
-    STATS::Time(STATS::GetInstance()->compactionSync, startSync, NowMiros());
+    STATS::Time(STATS::GetInstance()->compactionSync, startSync, NowMicros());
     return s;
   }
 
@@ -338,20 +338,20 @@ class PosixWritableFile : public WritableFile {
   }
 
   Status WriteRaw(const char* p, size_t n) {
-    uint64_t startWrite = NowMiros();
+    uint64_t startWrite = NowMicros();
     while (n > 0) {
       ssize_t r = write(fd_, p, n);
       if (r < 0) {
         if (errno == EINTR) {
           continue;  // Retry
         }
-        STATS::Time(STATS::GetInstance()->lsmIOTime,startWrite,NowMiros());
+        STATS::Time(STATS::GetInstance()->lsmIOTime,startWrite,NowMicros());
         return PosixError(filename_, errno);
       }
       p += r;
       n -= r;
     }
-    STATS::Time(STATS::GetInstance()->lsmIOTime,startWrite,NowMiros());
+    STATS::Time(STATS::GetInstance()->lsmIOTime,startWrite,NowMicros());
     return Status::OK();
   }
 };

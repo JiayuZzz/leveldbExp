@@ -8,9 +8,10 @@
 #include <string>
 #include <vector>
 #include <iostream>
+#include "env.h"
 
 #define STATS leveldb::Stats
-#define NowMiros() Env::Default()->NowMicros()
+static const uint64_t NowMicros(){ return leveldb::Env::Default()->NowMicros(); }
 
 namespace leveldb {
     using statType = std::pair<uint32_t, uint64_t>;   // <op counts, total time>
@@ -40,6 +41,7 @@ namespace leveldb {
         uint64_t compactionAddToBuilder;         //time of adding kv to table builder
         uint64_t compactionFindNext;             //iterator to next
         uint64_t compactionSync;
+        uint64_t vtableSync;
         uint64_t assignThread;
         uint64_t gcTime;
         uint64_t gcWriteValue;
@@ -143,6 +145,7 @@ namespace leveldb {
                    scanTime / scanCnt);
             printf("Read value error %lu times\n",getErrorCnt);
             printf("Vtable write buffer time:%.2f s\n",vtableWriteBuffer/1000000.0);
+            printf("Vtable sync time:%.2f s\n",vtableSync/1000000.0);
             printf("Vlog scan LSM-Tree iter time: %.2f s\n", iterTime / 1000000);
             printf("Fadvice time: %.2f\n",fadviceTime/1000000.0);
             printf("Assign vlog thread time: %.2f s\n", assign / 1000000);

@@ -91,7 +91,7 @@ Status TableBuilder::ChangeOptions(const Options& options) {
 }
 
 void TableBuilder::Add(const Slice& key, const Slice& value) {
-  int64_t startAdd = NowMiros();
+  int64_t startAdd = NowMicros();
   Rep* r = rep_;
   assert(!r->closed);
   if (!ok()) return;
@@ -100,37 +100,37 @@ void TableBuilder::Add(const Slice& key, const Slice& value) {
   }
 
   if (r->pending_index_entry) {
-    uint64_t startAddIndex = NowMiros();
+    uint64_t startAddIndex = NowMicros();
     assert(r->data_block.empty());
     r->options.comparator->FindShortestSeparator(&r->last_key, key);
     std::string handle_encoding;
     r->pending_handle.EncodeTo(&handle_encoding);
     r->index_block.Add(r->last_key, Slice(handle_encoding));
     r->pending_index_entry = false;
-    STATS::Time(STATS::GetInstance()->addIndexBlock,startAddIndex,NowMiros());
+    STATS::Time(STATS::GetInstance()->addIndexBlock,startAddIndex,NowMicros());
   }
 
   if (r->filter_block != nullptr) {
-      uint64_t startAddFilter = NowMiros();
+      uint64_t startAddFilter = NowMicros();
       r->filter_block->AddKey(key);
-      STATS::Time(STATS::GetInstance()->addFilter,startAddFilter,NowMiros());
+      STATS::Time(STATS::GetInstance()->addFilter,startAddFilter,NowMicros());
   }
-  uint64_t startAddData = NowMiros();
+  uint64_t startAddData = NowMicros();
   r->last_key.assign(key.data(), key.size());
   r->num_entries++;
   r->data_block.Add(key, value);
-  STATS::Time(STATS::GetInstance()->addData,startAddData,NowMiros());
+  STATS::Time(STATS::GetInstance()->addData,startAddData,NowMicros());
 
 
   const size_t estimated_block_size = r->data_block.CurrentSizeEstimate();
   if (estimated_block_size >= r->options.block_size) {
       Flush();
   }
-  STATS::Time(STATS::GetInstance()->compactionAddToBuilder,startAdd,NowMiros());
+  STATS::Time(STATS::GetInstance()->compactionAddToBuilder,startAdd,NowMicros());
 }
 
 void TableBuilder::Flush() {
-  uint64_t startFlush = NowMiros();
+  uint64_t startFlush = NowMicros();
   Rep* r = rep_;
   assert(!r->closed);
   if (!ok()) return;
@@ -144,7 +144,7 @@ void TableBuilder::Flush() {
   if (r->filter_block != nullptr) {
     r->filter_block->StartBlock(r->offset);
   }
-  STATS::Time(STATS::GetInstance()->flushTable,startFlush,NowMiros());
+  STATS::Time(STATS::GetInstance()->flushTable,startFlush,NowMicros());
 }
 
 void TableBuilder::WriteBlock(BlockBuilder* block, BlockHandle* handle) {
@@ -209,7 +209,7 @@ Status TableBuilder::status() const {
 }
 
 Status TableBuilder::Finish() {
-  uint64_t startFinish = NowMiros();
+  uint64_t startFinish = NowMicros();
   Rep* r = rep_;
   Flush();
   assert(!r->closed);
@@ -263,7 +263,7 @@ Status TableBuilder::Finish() {
       r->offset += footer_encoding.size();
     }
   }
-  STATS::Time(STATS::GetInstance()->finishTable ,startFinish, NowMiros());
+  STATS::Time(STATS::GetInstance()->finishTable ,startFinish, NowMicros());
   return r->status;
 }
 

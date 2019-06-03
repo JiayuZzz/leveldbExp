@@ -69,10 +69,8 @@ Status BuildTable(const std::string& dbname,
     }
 
     // Finish and check for builder errors
-    if(!vtableBuilder->Done()){
-      int cnt = vtableBuilder->Finish();
-      metaTable[vtablename] = VfileMeta(cnt);
-    }
+    int cnt = vtableBuilder->Done();
+    if(cnt) metaTable[vtablename] = cnt;
     s = builder->Finish();
     if (s.ok()) {
       meta->file_size = builder->FileSize();

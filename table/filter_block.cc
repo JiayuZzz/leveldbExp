@@ -52,7 +52,7 @@ Slice FilterBlockBuilder::Finish() {
 }
 
 void FilterBlockBuilder::GenerateFilter() {
-  uint64_t startMicro = NowMiros();
+  uint64_t startMicro = NowMicros();
   const size_t num_keys = start_.size();
   if (num_keys == 0) {
     // Fast path if there are no keys for this filter
@@ -76,7 +76,7 @@ void FilterBlockBuilder::GenerateFilter() {
   tmp_keys_.clear();
   keys_.clear();
   start_.clear();
-  STATS::Time(STATS::GetInstance()->generateFilterTime, startMicro, NowMiros());
+  STATS::Time(STATS::GetInstance()->generateFilterTime, startMicro, NowMicros());
 }
 
 FilterBlockReader::FilterBlockReader(const FilterPolicy* policy,

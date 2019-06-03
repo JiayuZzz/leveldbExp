@@ -359,7 +359,7 @@ Status Version::Get(const ReadOptions& options,
   std::vector<FileMetaData*> tmp;
   FileMetaData* tmp2;
   for (int level = 0; level < config::kNumLevels; level++) {
-    uint64_t startMicros = NowMiros();
+    uint64_t startMicros = NowMicros();
     size_t num_files = files_[level].size();
     if (num_files == 0) continue;
 
@@ -418,7 +418,7 @@ Status Version::Get(const ReadOptions& options,
       saver.value = value;
       s = vset_->table_cache_->Get(options, f->number, f->file_size,
                                    ikey, &saver, SaveValue);
-      STATS::TimeAndCount(STATS::GetInstance()->readLevelStat[level], startMicros, NowMiros());
+      STATS::TimeAndCount(STATS::GetInstance()->readLevelStat[level], startMicros, NowMicros());
       if (!s.ok()) {
         return s;
       }

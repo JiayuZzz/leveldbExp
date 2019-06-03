@@ -164,7 +164,7 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname)
   }
   writingVlog_=(fopen(vlogPathname(lastVlog_).c_str(),"a+"));
   std::cerr<<"threads:"<<options_.exp_ops.numThreads<<std::endl;
-  threadPool_->addTask(&DBImpl::scheduleMerge,this);
+  //threadPool_->addTask(&DBImpl::scheduleMerge,this);
   threadPool_->addTask(&DBImpl::scheduleGC,this);
   // TODO temp
   //lastVtable_ = 30000;
@@ -671,6 +671,7 @@ void DBImpl::RecordBackgroundError(const Status& s) {
 }
 
 void DBImpl::MaybeScheduleCompaction() {
+  if(options_.exp_ops.noCompaction) return;
   mutex_.AssertHeld();
   if (background_compaction_scheduled_) {
     // Already scheduled
@@ -841,7 +842,7 @@ Status DBImpl::OpenCompactionOutputFile(CompactionState* compact) {
 
 Status DBImpl::FinishCompactionOutputFile(CompactionState* compact,
                                           Iterator* input) {
-  uint64_t startMicros = NowMiros();
+  uint64_t startMicros = NowMicros();
   assert(compact != nullptr);
   assert(compact->outfile != nullptr);
   assert(compact->builder != nullptr);
@@ -889,7 +890,7 @@ Status DBImpl::FinishCompactionOutputFile(CompactionState* compact,
           (unsigned long long) current_bytes);
     }
   }
-  STATS::Time(STATS::GetInstance()->compactionOutputTime,startMicros,NowMiros());
+  STATS::Time(STATS::GetInstance()->compactionOutputTime,startMicros,NowMicros());
   return s;
 }
 
@@ -960,7 +961,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   std::string current_user_key;
   bool has_current_user_key = false;
   SequenceNumber last_sequence_for_key = kMaxSequenceNumber;
-  uint64_t startIter = NowMiros();
+  uint64_t startIter = NowMicros();
   for (; input->Valid() && !shutting_down_.Acquire_Load(); ) {
     // Prioritize immutable compaction work
     if (has_imm_.NoBarrier_Load() != nullptr) {
@@ -1006,7 +1007,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
         drop = true;    // (A)
 
         // update vfile meta
-        uint64_t startMeta = NowMiros();
+        uint64_t startMeta = NowMicros();
         if(input->value().ToString().back()=='~') {
           std::string filename;
           std::stringstream ss(input->value().ToString());
@@ -1016,7 +1017,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
             it->second+=1;
           } else invalidated[filename] = 1;
         }
-        STATS::Time(STATS::GetInstance()->gcMeta,startMeta,NowMiros());
+        STATS::Time(STATS::GetInstance()->gcMeta,startMeta,NowMicros());
       } else if (ikey.type == kTypeDeletion &&
                  ikey.sequence <= compact->smallest_snapshot &&
                  compact->compaction->IsBaseLevelForKey(ikey.user_key)) {
@@ -1093,19 +1094,17 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
       }
     }
 
-    int64_t startNext = NowMiros();
+    int64_t startNext = NowMicros();
     input->Next();
-    STATS::Time(STATS::GetInstance()->compactionFindNext,startNext,NowMiros());
+    STATS::Time(STATS::GetInstance()->compactionFindNext,startNext,NowMicros());
   }
-  if(!vtableBuilder->Done()) {
-    int cnt = vtableBuilder->Finish();
-    metaTable_[vtablename] = VfileMeta(cnt);
-  }
+  int cnt = vtableBuilder->Done();
+  if(cnt) metaTable_[vtablename] = VfileMeta(cnt);
   delete vtableBuilder;
   for(auto& p:invalidated){
     updateMeta(p.first,p.second);
   }
-  STATS::Time(STATS::GetInstance()->compactionIterTime,startIter,NowMiros());
+  STATS::Time(STATS::GetInstance()->compactionIterTime,startIter,NowMicros());
 
   if (status.ok() && shutting_down_.Acquire_Load()) {
     status = Status::IOError("Deleting DB during compaction");
@@ -1260,7 +1259,7 @@ Status DBImpl::Get(const ReadOptions& options,
     }
   }
   STATS::TimeAndCount(STATS::GetInstance()->readStat,startMicros,Env::Default()->NowMicros());
-  //fprintf(rl,"%lu,",NowMiros()-startMicros);
+  //fprintf(rl,"%lu,",NowMicros()-startMicros);
   //std::cerr<<*value<<std::endl;
   return s;
 }
@@ -1297,7 +1296,7 @@ void DBImpl::ReleaseSnapshot(const Snapshot* snapshot) {
 // Convenience methods
 Status DBImpl::Put(const WriteOptions& o, const Slice& key, const Slice& val) {
 //  std::cerr<<"valuesize "<<val.size()<<std::endl;
-  uint64_t startMicros = NowMiros();
+  uint64_t startMicros = NowMicros();
   Status s;
   if(val.size()>=options_.exp_ops.mediumThreshold){
     std::string filename = "l"+std::to_string(lastVlog_);
@@ -1307,15 +1306,15 @@ Status DBImpl::Put(const WriteOptions& o, const Slice& key, const Slice& val) {
   } else {
     s = DB::Put(o, key, val);
   }
-  STATS::TimeAndCount(STATS::GetInstance()->writeStat, startMicros, NowMiros());
-  //fprintf(wl,"%lu,",NowMiros()-startMicros);
+  STATS::TimeAndCount(STATS::GetInstance()->writeStat, startMicros, NowMicros());
+  //fprintf(wl,"%lu,",NowMicros()-startMicros);
   return s;
 }
 
 Status DBImpl::Delete(const WriteOptions& options, const Slice& key) {
-  uint64_t startMicros = NowMiros();
+  uint64_t startMicros = NowMicros();
   return DB::Delete(options, key);
-  STATS::TimeAndCount(STATS::GetInstance()->writeStat,startMicros,NowMiros());
+  STATS::TimeAndCount(STATS::GetInstance()->writeStat,startMicros,NowMicros());
 }
 
 Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
@@ -1348,7 +1347,7 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
     // into mem_.
     {
       mutex_.Unlock();
-      uint64_t startLog = NowMiros();
+      uint64_t startLog = NowMicros();
       status = log_->AddRecord(WriteBatchInternal::Contents(updates));
       bool sync_error = false;
       if (status.ok() && options.sync) {
@@ -1357,12 +1356,12 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
           sync_error = true;
         }
       }
-      STATS::Time(STATS::GetInstance()->writeLog,startLog,NowMiros());
-      uint64_t startMem = NowMiros();
+      STATS::Time(STATS::GetInstance()->writeLog,startLog,NowMicros());
+      uint64_t startMem = NowMicros();
       if (status.ok()) {
         status = WriteBatchInternal::InsertInto(updates, mem_);
       }
-      STATS::Time(STATS::GetInstance()->writeMemtable,startMem,NowMiros());
+      STATS::Time(STATS::GetInstance()->writeMemtable,startMem,NowMicros());
       mutex_.Lock();
       if (sync_error) {
         // The state of the log file is indeterminate: the log record we
@@ -1479,9 +1478,9 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       // We have filled up the current memtable, but the previous
       // one is still being compacted, so we wait.
       Log(options_.info_log, "Current memtable full; waiting...\n");
-      uint64_t start_micro = NowMiros();
+      uint64_t start_micro = NowMicros();
       background_work_finished_signal_.Wait();
-      STATS::Time(STATS::GetInstance()->waitFlush,start_micro,NowMiros());
+      STATS::Time(STATS::GetInstance()->waitFlush,start_micro,NowMicros());
     } else if (versions_->NumLevelFiles(0) >= config::kL0_StopWritesTrigger) {
       // There are too many level-0 files.
       Log(options_.info_log, "Too many L0 files; waiting...\n");
@@ -1722,7 +1721,7 @@ Status DBImpl::readValueWithAddress(std::string &valueInfo) {
 }
 
 std::string DBImpl::readValue(FILE* f, size_t offset, size_t size) {
-    uint64_t startMicros = NowMiros();
+    uint64_t startMicros = NowMicros();
     char value[size+1];
     size_t got = pread(fileno(f),value,size,offset);
     if(got!=size){
@@ -1730,7 +1729,7 @@ std::string DBImpl::readValue(FILE* f, size_t offset, size_t size) {
 //      std::cerr<<"get value error "<< strerror(errno) <<" offset "<<offset<<" size "<<size<<" got "<<got<<std::endl;
     }
     std::string ret = std::string(value);
-    STATS::Time(STATS::GetInstance()->readValueFile,startMicros,NowMiros());
+    STATS::Time(STATS::GetInstance()->readValueFile,startMicros,NowMicros());
     return ret;
 }
 
@@ -1743,7 +1742,7 @@ void DBImpl::readValueForScan(std::vector<std::string> &values, leveldb::BlockQu
 }
 
 FILE* DBImpl::openValueFile(const std::string &filename) {
-  uint64_t startMicro = NowMiros();
+  uint64_t startMicro = NowMicros();
   fileMutex_.Lock();
   FILE* f = openedFiles_[filename];
   if(!f){
@@ -1752,7 +1751,7 @@ FILE* DBImpl::openValueFile(const std::string &filename) {
   }
   fileMutex_.Unlock();
 //  std::cerr<<"open "<<filename<<std::endl;
-  STATS::Time(STATS::GetInstance()->openFileTime, startMicro, NowMiros());
+  STATS::Time(STATS::GetInstance()->openFileTime, startMicro, NowMicros());
   return f;
 }
 
@@ -1775,7 +1774,7 @@ void DBImpl::closeValueFile(const std::string &filename) {
         std::vector<std::future<std::string>> retValues;
         std::vector<std::string> valueInfos;
         size_t cnt = 0;
-        uint64_t iterStart = NowMiros();
+        uint64_t iterStart = NowMicros();
         std::unordered_map<std::string, size_t> fileReadSize;
         while(iter->Valid()&&cnt<num){
             //std::cerr<<"iter\n";
@@ -1786,9 +1785,9 @@ void DBImpl::closeValueFile(const std::string &filename) {
             if(valueInfo.back()=='~') {
                 parseValueInfo(valueInfo, filename, offset, size);
                 FILE* f = openValueFile(filename);
-                uint64_t startAdvice = NowMiros();
+                uint64_t startAdvice = NowMicros();
                 posix_fadvise(fileno(f),offset,size,POSIX_FADV_WILLNEED);
-                STATS::Time(STATS::GetInstance()->fadviceTime, startAdvice, NowMiros());
+                STATS::Time(STATS::GetInstance()->fadviceTime, startAdvice, NowMicros());
                 if (filename[0] == 't') {
                     if (fileReadSize[filename]) fileReadSize[filename] += size;
                     else {
@@ -1803,7 +1802,7 @@ void DBImpl::closeValueFile(const std::string &filename) {
             cnt++;
             iter->Next();
         }
-        STATS::Time(STATS::GetInstance()->scanVlogIter, iterStart, NowMiros());
+        STATS::Time(STATS::GetInstance()->scanVlogIter, iterStart, NowMicros());
         delete(iter);
         return Status();
     }
@@ -1812,15 +1811,15 @@ void DBImpl::closeValueFile(const std::string &filename) {
 Status DBImpl::Scan(const leveldb::ReadOptions &options, const std::string &start, const std::string &end,
                     std::vector<std::string> &keys, std::vector<std::string> &values, size_t num) {
     //std::cerr<<"scan\n";
-    uint64_t startScan = NowMiros();
+    uint64_t startScan = NowMicros();
     auto iter = NewIterator(options);
     iter->Seek(start);
     std::future<void> readDone;
     std::vector<std::string> valueInfos;
     size_t cnt = 0;
 
-    uint64_t iterStart = NowMiros();
-    auto fileReadSize = std::make_shared<std::unordered_map<std::string, size_t>>();
+    uint64_t iterStart = NowMicros();
+    //auto fileReadSize = std::make_shared<std::unordered_map<std::string, size_t>>();
     BlockQueue<ValueLoc> bq;
     readDone = threadPool_->addTask(&DBImpl::readValueForScan,this,std::ref(values),std::ref(bq));
     while(iter->Valid()&&cnt<num){
@@ -1833,15 +1832,17 @@ Status DBImpl::Scan(const leveldb::ReadOptions &options, const std::string &star
         if(valueInfo.back()=='~') {    // value location
           parseValueInfo(valueInfo, filename, offset, size);
           FILE* f = openValueFile(filename);
-          uint64_t startAdvice = NowMiros();
+          uint64_t startAdvice = NowMicros();
           readahead(fileno(f),offset,size);
-          STATS::Time(STATS::GetInstance()->fadviceTime, startAdvice, NowMiros());
+          STATS::Time(STATS::GetInstance()->fadviceTime, startAdvice, NowMicros());
+          /*
           if (filename[0] == 't') {
             if ((*fileReadSize)[filename]) (*fileReadSize)[filename] += size;
             else {
               (*fileReadSize)[filename] = size;
             }
           }
+           */
           bq.Put(ValueLoc(f,offset,size));
         } else {
           // don't read real value for now
@@ -1851,12 +1852,12 @@ Status DBImpl::Scan(const leveldb::ReadOptions &options, const std::string &star
         iter->Next();
     }
     bq.Put(ValueLoc(nullptr,0,0));
-    STATS::Time(STATS::GetInstance()->scanVlogIter, iterStart, NowMiros());
+    STATS::Time(STATS::GetInstance()->scanVlogIter, iterStart, NowMicros());
     delete(iter);
-    uint64_t wait = NowMiros();
+    uint64_t wait = NowMicros();
     readDone.wait();
-    STATS::Time(STATS::GetInstance()->waitScanThreadsFinish, wait, NowMiros());
-    STATS::TimeAndCount(STATS::GetInstance()->scanVlogStat, startScan, NowMiros());
+    STATS::Time(STATS::GetInstance()->waitScanThreadsFinish, wait, NowMicros());
+    STATS::TimeAndCount(STATS::GetInstance()->scanVlogStat, startScan, NowMicros());
     //threadPool_->addTask(&DBImpl::mayScheduleMerge,this,fileReadSize);
     return Status();
 }
@@ -1929,7 +1930,7 @@ void DBImpl::GarbageCollect(std::shared_ptr<std::unordered_set<std::string>> inG
     std::cerr<<"start gc "<<inGC->size()<<std::endl;
     // TODO: optimize, use new filename
     for(std::string filename:(*inGC)){
-      uint64_t startMicros = NowMiros();
+      uint64_t startMicros = NowMicros();
       uint64_t gcWriteBack = 0;
       uint64_t gcSize = 0;
       std::cerr<<"gc "<<filename<<std::endl;
@@ -1953,13 +1954,13 @@ void DBImpl::GarbageCollect(std::shared_ptr<std::unordered_set<std::string>> inG
         size_t ksize = iter->key().size();
         size_t vsize = iter->value().size();
         //std::cerr<<"gc write back "<<vsize<<std::endl;
-        int64_t startWriteValue = NowMiros();
+        int64_t startWriteValue = NowMicros();
         fwrite(conbineKVPair(iter->key().ToString(),iter->value().ToString()).c_str(),ksize+vsize+2,1,f);
-        STATS::Time(STATS::GetInstance()->gcWriteValue,startWriteValue,NowMiros());
+        STATS::Time(STATS::GetInstance()->gcWriteValue,startWriteValue,NowMicros());
         size_t offset = ftell(f)-vsize-1;
-        uint64_t startWriteLSM = NowMiros();
+        uint64_t startWriteLSM = NowMicros();
         Put(leveldb::WriteOptions(),iter->key(),conbineValueInfo(gcfile,offset,vsize));
-        STATS::Time(STATS::GetInstance()->gcWriteLSM,startWriteLSM,NowMiros());
+        STATS::Time(STATS::GetInstance()->gcWriteLSM,startWriteLSM,NowMicros());
         if(offset>=options_.exp_ops.tableSize) { // next gc file
 //          fsync(fileno(f));
           closeValueFile(gcfile);
@@ -1977,7 +1978,7 @@ void DBImpl::GarbageCollect(std::shared_ptr<std::unordered_set<std::string>> inG
       std::cerr<<"gc done, gc "<<gcSize<<" write back "<<gcWriteBack<<std::endl;
       STATS::Add(STATS::GetInstance()->gcWritebackBytes,gcWriteBack);
       STATS::Add(STATS::GetInstance()->gcSize,gcSize);
-      STATS::Time(STATS::GetInstance()->gcTime,startMicros,NowMiros());
+      STATS::Time(STATS::GetInstance()->gcTime,startMicros,NowMicros());
     }
     inGC->clear();
 }
@@ -1991,7 +1992,7 @@ std::string DBImpl::vlogPathname(size_t filenum) {
 }
 
 size_t DBImpl::writeVlog(const std::string &key, const std::string &value) {
-    uint64_t startMicros = NowMiros();
+    uint64_t startMicros = NowMicros();
     fwrite((conbineKVPair(key,value)).c_str(),key.size()+value.size()+2,1,writingVlog_);
     size_t offset = ftell(writingVlog_);
     if(offset>=options_.exp_ops.tableSize){
@@ -2001,7 +2002,7 @@ size_t DBImpl::writeVlog(const std::string &key, const std::string &value) {
       fclose(writingVlog_);
       writingVlog_ = fopen(vlogPathname(lastVlog_).c_str(),"a+");
     }
-    STATS::TimeAndCount(STATS::GetInstance()->writeVlogStat,startMicros,NowMiros());
+    STATS::TimeAndCount(STATS::GetInstance()->writeVlogStat,startMicros,NowMicros());
     return offset-value.size()-1;
 }
 
@@ -2035,9 +2036,7 @@ Status DBImpl::mergeVtables(std::shared_ptr<std::unordered_set<std::string>> inM
       }
       iter->Next();
     }
-  if(!builder->Done()){
-    builder->Finish();
-  }
+  builder->Done();
   delete builder;
   std::cerr<<"merge done\n";
   for(const auto& file:*inMerge) deleteFile(file);

@@ -25,7 +25,7 @@ public:
 
     int Finish();
 
-    bool Done();
+    int Done();
 
     void NextFile(const std::string& filepath);
 
@@ -35,6 +35,7 @@ private:
     FILE* file;
     bool finished;
     int num;       // num kv pairs
+    std::vector<FILE*> toSync;     //sync while all done
 };
 
 }

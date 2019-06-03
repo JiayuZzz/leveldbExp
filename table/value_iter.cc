@@ -36,9 +36,9 @@ namespace leveldb {
             std::string filename;
             size_t offset = -1, size = 0;
 //            std::cerr<<"call get"<<std::endl;
-            uint64_t startRead = NowMiros();
+            uint64_t startRead = NowMicros();
             db_->Get(leveldb::ReadOptions(true),key_,&valueInfo);
-            STATS::Time(STATS::GetInstance()->gcReadLsm,startRead,NowMiros());
+            STATS::Time(STATS::GetInstance()->gcReadLsm,startRead,NowMicros());
 
 //            std::cerr<<"get done\n";
             if(valueInfo.back()=='~') {
