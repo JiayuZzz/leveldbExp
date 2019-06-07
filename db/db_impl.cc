@@ -1934,7 +1934,7 @@ void DBImpl::GarbageCollect(std::shared_ptr<std::unordered_set<std::string>> inG
       uint64_t gcWriteBack = 0;
       uint64_t gcSize = 0;
       std::cerr<<"gc "<<filename<<std::endl;
-      gcSize+=options_.exp_ops.tableSize;
+      gcSize+=options_.exp_ops.logSize;
 
       std::string gcfile = conbineStr({"g",std::to_string(lastGCFile_.load())});
       std::cerr<<"filename "<<filename<<" gc filename "<<gcfile<<std::endl;
@@ -1961,7 +1961,7 @@ void DBImpl::GarbageCollect(std::shared_ptr<std::unordered_set<std::string>> inG
         uint64_t startWriteLSM = NowMicros();
         Put(leveldb::WriteOptions(),iter->key(),conbineValueInfo(gcfile,offset,vsize));
         STATS::Time(STATS::GetInstance()->gcWriteLSM,startWriteLSM,NowMicros());
-        if(offset>=options_.exp_ops.tableSize) { // next gc file
+        if(offset>=options_.exp_ops.logSize) { // next gc file
 //          fsync(fileno(f));
           closeValueFile(gcfile);
           lastGCFile_+=1;
@@ -1993,10 +1993,11 @@ std::string DBImpl::vlogPathname(size_t filenum) {
 
 size_t DBImpl::writeVlog(const std::string &key, const std::string &value) {
     uint64_t startMicros = NowMicros();
-    fwrite((conbineKVPair(key,value)).c_str(),key.size()+value.size()+2,1,writingVlog_);
+    //fwrite((conbineKVPair(key,value)).c_str(),key.size()+value.size()+2,1,writingVlog_);
+    write(fileno(writingVlog_),(conbineKVPair(key,value)).data(),key.size()+value.size()+2);
     size_t offset = ftell(writingVlog_);
-    if(offset>=options_.exp_ops.tableSize){
-//      fsync(fileno(writingVlog_));
+    if(offset>=options_.exp_ops.logSize){
+      fsync(fileno(writingVlog_));
       STATS::Add(STATS::GetInstance()->vlogWriteDisk,ftell(writingVlog_));
       lastVlog_+=1;
       fclose(writingVlog_);

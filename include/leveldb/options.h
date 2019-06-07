@@ -43,6 +43,7 @@ struct LEVELDB_EXPORT Options {
 
         // for selective kv
         size_t tableSize;
+        size_t logSize;
         size_t smallThreshold;
         size_t mediumThreshold;
         int mergeLevel;
@@ -50,7 +51,7 @@ struct LEVELDB_EXPORT Options {
 
         ExpOps():seekCompaction(true), directIO(false), sizeRatio(10), noCompaction(false),
                  baseLevelSize(10.0*1024*1024),numThreads(1),smallThreshold(40), mediumThreshold(4000),
-                 tableSize(32*1024*1024),gcRatio(0.3),numFileGC(50),mergeLevel(1){}
+                 tableSize(4*1024*1024),gcRatio(0.3),numFileGC(50),mergeLevel(6),logSize(32*1024*1024){}
     };
   // -------------------
   // Parameters that affect behavior

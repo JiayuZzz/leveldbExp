@@ -21,7 +21,7 @@ namespace leveldb {
         size_t ret = pos+key.size()+1;
         pos = ret+value.size()+1;
         // TODO: pre alloc buffer space
-        buffer+=conbineKVPair(key.ToString(),value.ToString());
+        buffer.append(conbineKVPair(key.ToString(),value.ToString()));
         num++;
         STATS::Time(STATS::GetInstance()->vtableWriteBuffer,startMicro,NowMicros());
         return ret;
@@ -31,7 +31,8 @@ namespace leveldb {
     int VtableBuilder::Finish() {
         uint64_t startMicros = NowMicros();
         //assert(!finished);
-        size_t write = fwrite(buffer.c_str(), buffer.size(), 1, file);
+        //fwrite(buffer.c_str(), buffer.size(), 1, file);
+        write(fileno(file),buffer.data(),buffer.size());
         //fdatasync(fileno(file));
         STATS::Add(STATS::GetInstance()->vTableWriteDisk,ftell(file));
         //fclose(file);
