@@ -30,8 +30,8 @@ Status BuildTable(const std::string& dbname,
   std::string prefix(1,'a'+options.exp_ops.mergeLevel);
 
   std::string fname = TableFileName(dbname, meta->number);
-  std::string vtablename = conbineStr({prefix,std::to_string(++lastVtable)});
-  std::string vtablepathname = conbineStr({dbname,"/values/",vtablename});
+  std::string vtablename;
+  std::string vtablepathname;
 
   if (iter->Valid()) {
     WritableFile* file;
@@ -41,7 +41,7 @@ Status BuildTable(const std::string& dbname,
     }
 
     TableBuilder* builder = new TableBuilder(options, file);
-    VtableBuilder* vtableBuilder = new VtableBuilder(vtablepathname);
+    VtableBuilder* vtableBuilder = new VtableBuilder();
     meta->smallest.DecodeFrom(iter->key());
     for (; iter->Valid(); iter->Next()) {
       Slice key = iter->key();
@@ -51,6 +51,12 @@ Status BuildTable(const std::string& dbname,
       if(valueSize<=options.exp_ops.smallThreshold){
         builder->Add(key,iter->value());
       } else {                             // write value to vtable, write location to lsm-tree
+	std::cerr<<"add to vtable, value size:"<<iter->value().size()<<std::endl;
+	    if(vtableBuilder->Finished()){
+	      vtablename = conbineStr({prefix,std::to_string(++lastVtable)});
+	      vtablepathname = conbineStr({dbname,"/values/",vtablename});
+	      vtableBuilder->NextFile(vtablepathname);
+	    }
         Slice userKey = ExtractUserKey(key);
         Slice value = iter->value();
         size_t offset = vtableBuilder->Add(userKey, value);
@@ -61,16 +67,15 @@ Status BuildTable(const std::string& dbname,
         if(offset>options.exp_ops.tableSize){
           int cnt = vtableBuilder->Finish();
           metaTable[vtablename] = VfileMeta(cnt);
-          vtablename = conbineStr({prefix,std::to_string(++lastVtable)});
-          vtablepathname = conbineStr({dbname,"/values/",vtablename});
-          vtableBuilder->NextFile(vtablepathname);
         }
       }
     }
 
     // Finish and check for builder errors
-    int cnt = vtableBuilder->Done();
-    if(cnt) metaTable[vtablename] = cnt;
+    if(!vtableBuilder->Finished()){
+      int cnt = vtableBuilder->Finish();
+      metaTable[vtablename] = cnt;
+    }
     s = builder->Finish();
     if (s.ok()) {
       meta->file_size = builder->FileSize();

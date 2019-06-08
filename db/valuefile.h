@@ -19,10 +19,10 @@ namespace leveldb {
     };
 
     struct VfileMeta {
-        int numKV;
+        int valid;
         int invalidKV;
 
-        VfileMeta(int kv) : numKV(kv),invalidKV(0) {}
+        VfileMeta(int v) : valid(v),invalidKV(0) {}
 
         VfileMeta() {}
     };

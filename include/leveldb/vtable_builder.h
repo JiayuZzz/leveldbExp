@@ -25,9 +25,11 @@ public:
 
     int Finish();
 
-    int Done();
+//    int Done();
 
     void NextFile(const std::string& filepath);
+
+    bool Finished(){ return finished;}
 
 private:
     std::string buffer;

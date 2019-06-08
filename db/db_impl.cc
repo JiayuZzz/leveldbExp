@@ -947,11 +947,6 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   std::string vtablename;
   std::string vtablepathname;
   std::cerr<<"compaction level "<<level<<", prefix"<<levelPrefix<<" next prefix "<<nextprefix<<std::endl;
-  if(levelPrefix>=('a'+options_.exp_ops.mergeLevel)) {
-      vtablename = conbineStr({nextprefix,std::to_string(++lastVtable_)});
-      vtablepathname = valueFilePath(vtablename);
-      vtableBuilder->NextFile(vtablepathname);
-  }
   std::unordered_map<std::string, int> invalidated;
 
   Iterator* input = versions_->MakeInputIterator(compact->compaction);
@@ -1008,14 +1003,23 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
 
         // update vfile meta
         uint64_t startMeta = NowMicros();
-        if(input->value().ToString().back()=='~') {
+        std::string value = input->value().ToString();
+        if(value.back()=='~') {
           std::string filename;
           std::stringstream ss(input->value().ToString());
           std::getline(ss, filename, '~');
+          int invalid = 1;
+          // for vlog, update invalid size
+          if(value[0]=='l'||value[0]=='g') {
+            std::string size;
+            std::getline(ss,size,'~');
+            std::getline(ss,size,'~');
+            invalid = std::stoi(size);
+          }
           auto it = invalidated.find(filename);
           if(it!=invalidated.end()) {
-            it->second+=1;
-          } else invalidated[filename] = 1;
+            it->second+=invalid;
+          } else invalidated[filename] = invalid;
         }
         STATS::Time(STATS::GetInstance()->gcMeta,startMeta,NowMicros());
       } else if (ikey.type == kTypeDeletion &&
@@ -1048,6 +1052,11 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
       // TODO: GC
       std::string value = input->value().ToString();
       if(value.back()=='~'&&value[0]==levelPrefix){
+        if(vtableBuilder->Finished()){
+            vtablename = conbineStr({nextprefix,std::to_string(++lastVtable_)});
+            vtablepathname = valueFilePath(vtablename);
+            vtableBuilder->NextFile(vtablepathname);
+        }
         std::string filename;
         size_t offset, size;
         parseValueInfo(value,filename,offset,size);
@@ -1059,9 +1068,6 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
           int cnt = vtableBuilder->Finish();
           metaTable_[vtablename] = VfileMeta(cnt);
           std::cerr<<"output new vtable: "<<vtablename<<std::endl;
-          vtablename = conbineStr({nextprefix,std::to_string(++lastVtable_)});
-          vtablepathname = valueFilePath(vtablename);
-          vtableBuilder->NextFile(vtablepathname);
         }
         auto it = invalidated.find(filename);
         if(it!=invalidated.end()) {
@@ -1098,8 +1104,10 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
     input->Next();
     STATS::Time(STATS::GetInstance()->compactionFindNext,startNext,NowMicros());
   }
-  int cnt = vtableBuilder->Done();
-  if(cnt) metaTable_[vtablename] = VfileMeta(cnt);
+  if(!vtableBuilder->Finished()){
+      int cnt = vtableBuilder->Finish();
+      metaTable_[vtablename] = VfileMeta(cnt);
+  }
   delete vtableBuilder;
   for(auto& p:invalidated){
     updateMeta(p.first,p.second);
@@ -2002,6 +2010,7 @@ size_t DBImpl::writeVlog(const std::string &key, const std::string &value) {
       lastVlog_+=1;
       fclose(writingVlog_);
       writingVlog_ = fopen(vlogPathname(lastVlog_).c_str(),"a+");
+      metaTable_[conbineStr({"l",std::to_string(lastVlog_)})] = VfileMeta(options_.exp_ops.logSize);
     }
     STATS::TimeAndCount(STATS::GetInstance()->writeVlogStat,startMicros,NowMicros());
     return offset-value.size()-1;
@@ -2037,7 +2046,7 @@ Status DBImpl::mergeVtables(std::shared_ptr<std::unordered_set<std::string>> inM
       }
       iter->Next();
     }
-  builder->Done();
+  if(!builder->Finished()) builder->Finish();
   delete builder;
   std::cerr<<"merge done\n";
   for(const auto& file:*inMerge) deleteFile(file);
@@ -2056,12 +2065,12 @@ void DBImpl::updateMeta(const std::string &filename, int invalid) {
   if(it!=metaTable_.end()) {
     auto& item = it->second;
     invalid += item.invalidKV;
-    std::cerr<<filename<<" invalid "<<invalid<<"/"<<item.numKV<<std::endl;
-    if (invalid == item.numKV) {
+    std::cerr<<filename<<" invalid "<<invalid<<"/"<<item.valid<<std::endl;
+    if (invalid == item.valid) {
       deleteFile(filename);
       metaTable_.erase(it);
     } else {
-      if (filename[0] == 'l' && (double) invalid / item.numKV > options_.exp_ops.gcRatio) {
+      if (filename[0]>'a'+options_.exp_ops.mergeLevel+1 && (double) invalid / item.valid > options_.exp_ops.gcRatio) {
         //TODO: reliability
         metaTable_.erase(filename);
         toGC_.Put(filename);
