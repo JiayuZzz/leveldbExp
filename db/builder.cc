@@ -125,7 +125,7 @@ Status BuildTable(const std::string& dbname,
   } else {
     env->DeleteFile(fname);
   }
-  return s;
+    return s;
 }
 
 }  // namespace leveldb

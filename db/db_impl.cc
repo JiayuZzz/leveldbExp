@@ -529,6 +529,8 @@ Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
   {
     mutex_.Unlock();
     s = BuildTable(dbname_, env_, options_, table_cache_, iter, &meta, lastVtable_, metaTable_);
+    // delete old one
+    deleteFile(conbineStr({"m",std::to_string(lastMidLog_-1)}));
     mutex_.Lock();
   }
 
@@ -570,7 +572,6 @@ void DBImpl::CompactMemTable() {
   base->Ref();
   Status s = WriteLevel0Table(imm_, &edit, base);
   //delete old one
-  deleteFile(conbineStr({"m",std::to_string(lastMidLog_-1)}));
   base->Unref();
 
   if (s.ok() && shutting_down_.Acquire_Load()) {
@@ -950,7 +951,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   VtableBuilder* vtableBuilder = new VtableBuilder();
   std::string vtablename;
   std::string vtablepathname;
-  std::cerr<<"compaction level "<<level<<", prefix"<<levelPrefix<<" next prefix "<<nextprefix<<std::endl;
+//  std::cerr<<"compaction level "<<level<<", prefix"<<levelPrefix<<" next prefix "<<nextprefix<<std::endl;
   std::unordered_map<std::string, int> invalidated;
 
   Iterator* input = versions_->MakeInputIterator(compact->compaction);
@@ -1055,30 +1056,32 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
       // merge vtables
       // TODO: GC
       std::string value = input->value().ToString();
-      if(value.back()=='~'&&value[0]==levelPrefix){
-        if(vtableBuilder->Finished()){
-            vtablename = conbineStr({nextprefix,std::to_string(++lastVtable_)});
-            vtablepathname = valueFilePath(vtablename);
-            vtableBuilder->NextFile(vtablepathname);
-        }
+      if(value.back()=='~'){
         std::string filename;
         size_t offset, size;
         parseValueInfo(value,filename,offset,size);
+        if(value[0]==levelPrefix||(doMerge_&&level==options_.exp_ops.gcLevel-1&&toMerge_.find(filename)!=inMerge_.end())) {
+            if (vtableBuilder->Finished()) {
+                vtablename = conbineStr({nextprefix, std::to_string(++lastVtable_)});
+                vtablepathname = valueFilePath(vtablename);
+                vtableBuilder->NextFile(vtablepathname);
+            }
 //        std::cerr<<"value info:"<<value<<std::endl;
-        std::string v = readValue(openValueFile(filename),offset,size);
-        offset = vtableBuilder->Add(key,v);
+            std::string v = readValue(openValueFile(filename), offset, size);
+            offset = vtableBuilder->Add(key, v);
 //        std::cerr<<"add done\n";
-        value = conbineValueInfo(vtablename,offset,size);
-        if(offset>options_.exp_ops.tableSize){
-          int cnt = vtableBuilder->Finish();
-          metaTable_[vtablename] = VfileMeta(cnt);
-          std::cerr<<"output new vtable: "<<vtablename<<std::endl;
-        }
-        auto it = invalidated.find(filename);
-        if(it!=invalidated.end()) {
-          it->second+=1;
+            value = conbineValueInfo(vtablename, offset, size);
+            if (offset > options_.exp_ops.tableSize) {
+                int cnt = vtableBuilder->Finish();
+                metaTable_[vtablename] = VfileMeta(cnt);
+//                std::cerr << "output new vtable: " << vtablename << std::endl;
+            }
+            auto it = invalidated.find(filename);
+            if (it != invalidated.end()) {
+                it->second += 1;
 //          std::cerr<<"invalidate "<<invalidated[filename]<<std::endl;
-        } else invalidated[filename] = 1;
+            } else invalidated[filename] = 1;
+        }
       }
 
 
@@ -1314,18 +1317,22 @@ Status DBImpl::Put(const WriteOptions& o, const Slice& key, const Slice& val) {
   Status s;
     if(val.size()>=options_.exp_ops.mediumThreshold){
     std::string filename = "l"+std::to_string(lastVlog_);
+    uint64_t startMicros = NowMicros();
     size_t offset = writingVlog_.AddRecord(key.ToString(), val.ToString());
     std::string valueInfo = conbineValueInfo(filename,offset,val.size());
     //midVlog_.AddRecord(key.ToString(),valueInfo);
-    s = DB::Put(o, key, valueInfo);
     if(offset>=options_.exp_ops.logSize){
       writingVlog_.Sync();
       writingVlog_.NextFile(vlogPathname(++lastVlog_));
       metaTable_[conbineStr({"l",std::to_string(lastVlog_)})] = VfileMeta(options_.exp_ops.logSize);
     }
-  } else {
+    STATS::TimeAndCount(STATS::GetInstance()->writeVlogStat,startMicros,NowMicros());
+    s = DB::Put(o, key, valueInfo);
+    } else {
     std::string filename = "m"+std::to_string(lastMidLog_);
+    uint64_t startMicros = NowMicros();
     size_t offset = midVlog_.AddRecord(key.ToString(), val.ToString());
+    STATS::Time(STATS::GetInstance()->writeMidLog,startMicros,NowMicros());
     if(val.size()>=options_.exp_ops.smallThreshold){
       std::string valueInfo = conbineValueInfo(filename,offset,val.size());
       s = DB::Put(o, key, valueInfo);
@@ -1663,6 +1670,7 @@ Status DB::Open(const Options& options, const std::string& dbname,
   // Recover handles create_if_missing, error_if_exists
   bool save_manifest = false;
   Status s = impl->Recover(&edit, &save_manifest);
+  std::cerr<<"recover done\n";
 
   if (s.ok() && impl->mem_ == nullptr) {
     // Create new log and a corresponding memtable.
@@ -1839,7 +1847,6 @@ void DBImpl::closeValueFile(const std::string &filename) {
 
 Status DBImpl::Scan(const leveldb::ReadOptions &options, const std::string &start, const std::string &end,
                     std::vector<std::string> &keys, std::vector<std::string> &values, size_t num) {
-    //std::cerr<<"scan\n";
     uint64_t startScan = NowMicros();
     auto iter = NewIterator(options);
     iter->Seek(start);
@@ -1852,7 +1859,6 @@ Status DBImpl::Scan(const leveldb::ReadOptions &options, const std::string &star
     BlockQueue<ValueLoc> bq;
     readDone = threadPool_->addTask(&DBImpl::readValueForScan,this,std::ref(values),std::ref(bq));
     while(iter->Valid()&&cnt<num){
-        //std::cerr<<"iter\n";
         keys.push_back(iter->key().ToString());
         std::string valueInfo = iter->value().ToString();
         std::string filename;
@@ -1862,6 +1868,7 @@ Status DBImpl::Scan(const leveldb::ReadOptions &options, const std::string &star
           parseValueInfo(valueInfo, filename, offset, size);
           FILE* f = openValueFile(filename);
           uint64_t startAdvice = NowMicros();
+//          threadPool_->addTask(readahead,fileno(f),offset,size);
           readahead(fileno(f),offset,size);
           STATS::Time(STATS::GetInstance()->fadviceTime, startAdvice, NowMicros());
           /*
@@ -1891,6 +1898,7 @@ Status DBImpl::Scan(const leveldb::ReadOptions &options, const std::string &star
     return Status();
 }
 
+/*
 void DBImpl::mayScheduleMerge(std::shared_ptr<std::unordered_map<std::string, size_t>> fileReadSize){
     if(fileReadSize->size()==0) return;
     size_t sum = 0;
@@ -1910,6 +1918,7 @@ void DBImpl::mayScheduleMerge(std::shared_ptr<std::unordered_map<std::string, si
     }
 }
 
+
 void DBImpl::scheduleMerge(){
     auto toSchedule = std::make_shared<std::unordered_set<std::string>>();
     auto merging = std::make_shared<std::unordered_set<std::string>>();
@@ -1924,6 +1933,7 @@ void DBImpl::scheduleMerge(){
         }
     }
 }
+ */
 
 void DBImpl::scheduleGC() {
     auto toGC = std::make_shared<std::unordered_set<std::string>>();
@@ -1962,19 +1972,19 @@ void DBImpl::GarbageCollect(std::shared_ptr<std::unordered_set<std::string>> inG
       uint64_t startMicros = NowMicros();
       uint64_t gcWriteBack = 0;
       uint64_t gcSize = 0;
-      std::cerr<<"gc "<<filename<<std::endl;
+//      std::cerr<<"gc "<<filename<<std::endl;
       gcSize+=options_.exp_ops.logSize;
 
       std::string gcfile = conbineStr({"g",std::to_string(lastGCFile_.load())});
-      std::cerr<<"filename "<<filename<<" gc filename "<<gcfile<<std::endl;
+//      std::cerr<<"filename "<<filename<<" gc filename "<<gcfile<<std::endl;
       FILE* f = openValueFile(gcfile);
       fseek(f,0,SEEK_SET);
 
       std::string filepath = valueFilePath(filename);
         if(access(filepath.c_str(),F_OK)!=0){
-            std::cerr<<"has been gced\n";
+//            std::cerr<<"has been gced\n";
             //metaTable_.erase(filename);
-            std::cerr<<"continue\n";
+//            std::cerr<<"continue\n";
             continue;
         }
       Iterator* iter = new ValueIterator(filepath,this);
@@ -2004,7 +2014,7 @@ void DBImpl::GarbageCollect(std::shared_ptr<std::unordered_set<std::string>> inG
       closeValueFile(filename);
       deleteFile(filename);
       //metaTable_.erase(filename);
-      std::cerr<<"gc done, gc "<<gcSize<<" write back "<<gcWriteBack<<std::endl;
+//      std::cerr<<"gc done, gc "<<gcSize<<" write back "<<gcWriteBack<<std::endl;
       STATS::Add(STATS::GetInstance()->gcWritebackBytes,gcWriteBack);
       STATS::Add(STATS::GetInstance()->gcSize,gcSize);
       STATS::Time(STATS::GetInstance()->gcTime,startMicros,NowMicros());
@@ -2040,7 +2050,7 @@ size_t DBImpl::writeVlog(const std::string &key, const std::string &value) {
  */
 
 Status DBImpl::deleteFile(const std::string &filename){
-      std::cerr<<"delete "<<filename<<std::endl;
+//      std::cerr<<"delete "<<filename<<std::endl;
       return remove(valueFilePath(filename).c_str()) == 0 ? Status() : Status().IOError("delete vlog error\n");
     }
 
@@ -2084,6 +2094,7 @@ Status DBImpl::mergeVtables(std::shared_ptr<std::unordered_set<std::string>> inM
 }
 
 void DBImpl::updateMeta(const std::string &filename, int invalid) {
+  static int cnt = 0;
   auto it = metaTable_.find(filename);
   if(it!=metaTable_.end()) {
     auto& item = it->second;
@@ -2092,9 +2103,23 @@ void DBImpl::updateMeta(const std::string &filename, int invalid) {
     if (invalid == item.valid) {
       deleteFile(filename);
       metaTable_.erase(it);
+      if(inMerge_.size()>0){
+        cnt+=toMerge_.erase(filename);
+        std::cerr<<"deleted "<<cnt<<"vtables during merge\n";
+        if(!inMerge_.size()) doMerge_ = false;
+      }
     } else {
-      if (filename[0]>'a'+options_.exp_ops.mergeLevel+1 && (double) invalid / item.valid > options_.exp_ops.gcRatio) {
+      if (filename[0]>='a'+options_.exp_ops.gcLevel && (double) invalid / item.valid > options_.exp_ops.gcRatio) {
         //TODO: reliability
+        if(filename[0]<'g'){
+          std::cerr<<"to merge "<<toMerge_.size()<<std::endl;
+          toMerge_.insert(filename);
+          if(toMerge_.size()>=100) {
+            std::cerr<<"merge "<<toMerge_.size()<<"vtables\n";
+            doMerge_ = true;
+//            std::swap(toMerge_,inMerge_);
+          }
+        }
         metaTable_.erase(filename);
         toGC_.Put(filename);
       } else {

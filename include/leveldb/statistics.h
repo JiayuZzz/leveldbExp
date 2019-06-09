@@ -31,6 +31,7 @@ namespace leveldb {
         statType scanVlogStat;
         statType writeVlogStat;
         statType writeVtableStat;
+        uint64_t writeMidLog;
         uint64_t writeLog;
         uint64_t waitFlush;
         uint64_t scanVlogIter;
@@ -141,6 +142,7 @@ namespace leveldb {
                    readTime / readCnt);
             printf("Total vtable write time: %.2f s, count: %u, write latency: %.2f us\n", writeVtableStat.second / 1000000.0,
                    writeVtableStat.first, (double)writeVtableStat.second  / writeVtableStat.first);
+            printf("Total midlog write time: %.2f s\n",writeMidLog/1000000.0);
             printf("Total scan time:%.2f s, count: %u, scan latency: %.2f us\n", scanTime / 1000000, scanCnt,
                    scanTime / scanCnt);
             printf("Read value error %lu times\n",getErrorCnt);
