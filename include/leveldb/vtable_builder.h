@@ -25,6 +25,7 @@ public:
 
     int Finish();
 
+    void Sync();
 //    int Done();
 
     void NextFile(const std::string& filepath);

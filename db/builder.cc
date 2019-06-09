@@ -42,26 +42,35 @@ Status BuildTable(const std::string& dbname,
 
     TableBuilder* builder = new TableBuilder(options, file);
     VtableBuilder* vtableBuilder = new VtableBuilder();
+    FILE* f = nullptr;
     meta->smallest.DecodeFrom(iter->key());
     for (; iter->Valid(); iter->Next()) {
       Slice key = iter->key();
       meta->largest.DecodeFrom(key);
-      size_t valueSize = iter->value().size();
-      // small value?
-      if(valueSize<=options.exp_ops.smallThreshold){
+      std::string value = iter->value().ToString();
+      if(value[0]!='m'||value.back()!='~'){
+//        std::cerr<<"small or large, size:"<<value.size()<<std::endl;
         builder->Add(key,iter->value());
       } else {                             // write value to vtable, write location to lsm-tree
-	std::cerr<<"add to vtable, value size:"<<iter->value().size()<<std::endl;
 	    if(vtableBuilder->Finished()){
 	      vtablename = conbineStr({prefix,std::to_string(++lastVtable)});
 	      vtablepathname = conbineStr({dbname,"/values/",vtablename});
 	      vtableBuilder->NextFile(vtablepathname);
 	    }
+	    std::string filename;
+	    size_t offset, size;
+	    parseValueInfo(value,filename,offset,size);
+	    if(!f) f = fopen(conbineStr({dbname,"/values/",filename}).c_str(),"r");
+	    char realvalue[size+1];
+	    // extract value from midlog
+        uint64_t startRead = NowMicros();
+	    pread(fileno(f),realvalue,size,offset);
+	    realvalue[size]='\0';
+          STATS::Time(STATS::GetInstance()->readValueFile,startRead,NowMicros());
         Slice userKey = ExtractUserKey(key);
-        Slice value = iter->value();
-        size_t offset = vtableBuilder->Add(userKey, value);
+        offset = vtableBuilder->Add(userKey, Slice(realvalue));
         // filename $ offset $ value size
-        std::string valueInfo = conbineValueInfo(vtablename,offset,value.size());
+        std::string valueInfo = conbineValueInfo(vtablename,offset,size);
         builder->Add(key, valueInfo);
         // finish this vtable
         if(offset>options.exp_ops.tableSize){
@@ -72,10 +81,12 @@ Status BuildTable(const std::string& dbname,
     }
 
     // Finish and check for builder errors
+    if(f) fclose(f);
     if(!vtableBuilder->Finished()){
       int cnt = vtableBuilder->Finish();
       metaTable[vtablename] = cnt;
     }
+    vtableBuilder->Sync();
     s = builder->Finish();
     if (s.ok()) {
       meta->file_size = builder->FileSize();

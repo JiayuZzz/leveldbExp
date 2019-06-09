@@ -211,7 +211,9 @@ class DBImpl : public DB {
   std::atomic<size_t> lastVtable_;
   std::atomic<size_t> lastVlog_;
   std::atomic<size_t> lastGCFile_;
-  FILE* writingVlog_;
+  std::atomic<size_t> lastMidLog_;
+  ValueLog writingVlog_;
+  ValueLog midVlog_;
   std::unordered_map<std::string ,FILE*> openedFiles_;
   port::Mutex fileMutex_;   // protect opened files
   ThreadPool* threadPool_;

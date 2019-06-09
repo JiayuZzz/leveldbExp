@@ -156,13 +156,15 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname)
                                &internal_comparator_)),
       lastVlog_(0),
       lastVtable_(0),
+      lastMidLog_(0),
       openedFiles_(), lastGCFile_(0), toMerge_(), toGC_(){
   threadPool_ = new ThreadPool(options_.exp_ops.numThreads);
   has_imm_.Release_Store(nullptr);
   if(access((dbname_+"/values").c_str(),F_OK)!=0&&options_.create_if_missing){
     env_->CreateDir(dbname_+"/values");
   }
-  writingVlog_=(fopen(vlogPathname(lastVlog_).c_str(),"a+"));
+  writingVlog_.NextFile(vlogPathname(lastVlog_));
+  midVlog_.NextFile(valueFilePath("m"+std::to_string(lastMidLog_)));
   std::cerr<<"threads:"<<options_.exp_ops.numThreads<<std::endl;
   //threadPool_->addTask(&DBImpl::scheduleMerge,this);
   threadPool_->addTask(&DBImpl::scheduleGC,this);
@@ -567,6 +569,8 @@ void DBImpl::CompactMemTable() {
   Version* base = versions_->current();
   base->Ref();
   Status s = WriteLevel0Table(imm_, &edit, base);
+  //delete old one
+  deleteFile(conbineStr({"m",std::to_string(lastMidLog_-1)}));
   base->Unref();
 
   if (s.ok() && shutting_down_.Acquire_Load()) {
@@ -1061,7 +1065,8 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
         size_t offset, size;
         parseValueInfo(value,filename,offset,size);
 //        std::cerr<<"value info:"<<value<<std::endl;
-        offset = vtableBuilder->Add(key,readValue(openValueFile(filename),offset,size));
+        std::string v = readValue(openValueFile(filename),offset,size);
+        offset = vtableBuilder->Add(key,v);
 //        std::cerr<<"add done\n";
         value = conbineValueInfo(vtablename,offset,size);
         if(offset>options_.exp_ops.tableSize){
@@ -1108,6 +1113,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
       int cnt = vtableBuilder->Finish();
       metaTable_[vtablename] = VfileMeta(cnt);
   }
+  vtableBuilder->Sync();
   delete vtableBuilder;
   for(auto& p:invalidated){
     updateMeta(p.first,p.second);
@@ -1306,13 +1312,26 @@ Status DBImpl::Put(const WriteOptions& o, const Slice& key, const Slice& val) {
 //  std::cerr<<"valuesize "<<val.size()<<std::endl;
   uint64_t startMicros = NowMicros();
   Status s;
-  if(val.size()>=options_.exp_ops.mediumThreshold){
+    if(val.size()>=options_.exp_ops.mediumThreshold){
     std::string filename = "l"+std::to_string(lastVlog_);
-    size_t offset = writeVlog(key.ToString(), val.ToString());
+    size_t offset = writingVlog_.AddRecord(key.ToString(), val.ToString());
     std::string valueInfo = conbineValueInfo(filename,offset,val.size());
+    //midVlog_.AddRecord(key.ToString(),valueInfo);
     s = DB::Put(o, key, valueInfo);
+    if(offset>=options_.exp_ops.logSize){
+      writingVlog_.Sync();
+      writingVlog_.NextFile(vlogPathname(++lastVlog_));
+      metaTable_[conbineStr({"l",std::to_string(lastVlog_)})] = VfileMeta(options_.exp_ops.logSize);
+    }
   } else {
-    s = DB::Put(o, key, val);
+    std::string filename = "m"+std::to_string(lastMidLog_);
+    size_t offset = midVlog_.AddRecord(key.ToString(), val.ToString());
+    if(val.size()>=options_.exp_ops.smallThreshold){
+      std::string valueInfo = conbineValueInfo(filename,offset,val.size());
+      s = DB::Put(o, key, valueInfo);
+    } else {
+      s = DB::Put(o, key, val);
+    }
   }
   STATS::TimeAndCount(STATS::GetInstance()->writeStat, startMicros, NowMicros());
   //fprintf(wl,"%lu,",NowMicros()-startMicros);
@@ -1506,6 +1525,8 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       }
       delete log_;
       delete logfile_;
+      // next mid log
+      midVlog_.NextFile(valueFilePath(conbineStr({"m",std::to_string(++lastMidLog_)})));
       logfile_ = lfile;
       logfile_number_ = new_log_number;
       log_ = new log::Writer(lfile);
@@ -1999,6 +2020,7 @@ std::string DBImpl::vlogPathname(size_t filenum) {
   return valueFilePath(conbineStr({"l",std::to_string(filenum)}));
 }
 
+/*
 size_t DBImpl::writeVlog(const std::string &key, const std::string &value) {
     uint64_t startMicros = NowMicros();
     //fwrite((conbineKVPair(key,value)).c_str(),key.size()+value.size()+2,1,writingVlog_);
@@ -2015,6 +2037,7 @@ size_t DBImpl::writeVlog(const std::string &key, const std::string &value) {
     STATS::TimeAndCount(STATS::GetInstance()->writeVlogStat,startMicros,NowMicros());
     return offset-value.size()-1;
 }
+ */
 
 Status DBImpl::deleteFile(const std::string &filename){
       std::cerr<<"delete "<<filename<<std::endl;
@@ -2065,7 +2088,7 @@ void DBImpl::updateMeta(const std::string &filename, int invalid) {
   if(it!=metaTable_.end()) {
     auto& item = it->second;
     invalid += item.invalidKV;
-    std::cerr<<filename<<" invalid "<<invalid<<"/"<<item.valid<<std::endl;
+//    std::cerr<<filename<<" invalid "<<invalid<<"/"<<item.valid<<std::endl;
     if (invalid == item.valid) {
       deleteFile(filename);
       metaTable_.erase(it);

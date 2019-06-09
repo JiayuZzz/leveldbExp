@@ -51,16 +51,15 @@ namespace leveldb {
     }
 
     // sync all vtable written, return kv cnt of last finished vtable
-//    int VtableBuilder::Done() {
-//        if(!finished) Finish();
-//        uint64_t startMicros = NowMicros();
-//        for(FILE* f:toSync) {
-//            fdatasync(fileno(f));
-//            fclose(f);
-//        }
-//        STATS::Time(STATS::GetInstance()->vtableSync, startMicros, NowMicros());
-//        return num;
-//    }
+    void VtableBuilder::Sync() {
+        if(!finished) Finish();
+        uint64_t startMicros = NowMicros();
+        for(FILE* f:toSync) {
+            fdatasync(fileno(f));
+            fclose(f);
+        }
+        STATS::Time(STATS::GetInstance()->vtableSync, startMicros, NowMicros());
+    }
 
 
 }
