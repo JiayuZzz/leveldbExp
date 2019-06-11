@@ -60,7 +60,10 @@ Status BuildTable(const std::string& dbname,
 	    std::string filename;
 	    size_t offset, size;
 	    parseValueInfo(value,filename,offset,size);
-	    if(!f) f = fopen(conbineStr({dbname,"/values/",filename}).c_str(),"r");
+	    if(!f) {
+	        f = fopen(conbineStr({dbname,"/values/",filename}).c_str(),"r");
+	        if(!f) continue;
+	    }
 	    char realvalue[size+1];
 	    // extract value from midlog
         uint64_t startRead = NowMicros();

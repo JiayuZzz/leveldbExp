@@ -223,7 +223,7 @@ class DBImpl : public DB {
 //  BlockQueue<std::string> toMerge_;
   BlockQueue<std::string> toGC_;
   std::unordered_set<std::string> toMerge_;
-  std::unordered_set<std::string> inMerge_;
+//  std::unordered_set<std::string> inMerge_;
   bool doMerge_;     // trigger merge gc during compaction
 
   void updateMeta(const std::string& filename, int invalid);

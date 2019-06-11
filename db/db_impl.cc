@@ -506,7 +506,7 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, bool last_log,
     // mem did not get reused; compact it.
     if (status.ok()) {
       *save_manifest = true;
-      status = WriteLevel0Table(mem, edit, nullptr);
+        status = WriteLevel0Table(mem, edit, nullptr);
     }
     mem->Unref();
   }
@@ -1060,7 +1060,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
         std::string filename;
         size_t offset, size;
         parseValueInfo(value,filename,offset,size);
-        if(value[0]==levelPrefix||(doMerge_&&level==options_.exp_ops.gcLevel-1&&toMerge_.find(filename)!=inMerge_.end())) {
+        if(value[0]==levelPrefix||(doMerge_&&(level==options_.exp_ops.gcLevel)&&toMerge_.find(filename)!=toMerge_.end())) {
             if (vtableBuilder->Finished()) {
                 vtablename = conbineStr({nextprefix, std::to_string(++lastVtable_)});
                 vtablepathname = valueFilePath(vtablename);
@@ -1076,11 +1076,10 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
                 metaTable_[vtablename] = VfileMeta(cnt);
 //                std::cerr << "output new vtable: " << vtablename << std::endl;
             }
-            auto it = invalidated.find(filename);
-            if (it != invalidated.end()) {
-                it->second += 1;
-//          std::cerr<<"invalidate "<<invalidated[filename]<<std::endl;
-            } else invalidated[filename] = 1;
+          auto it = invalidated.find(filename);
+          if(it!=invalidated.end()) {
+            it->second+=1;
+          } else invalidated[filename] = 1;
         }
       }
 
@@ -1670,7 +1669,6 @@ Status DB::Open(const Options& options, const std::string& dbname,
   // Recover handles create_if_missing, error_if_exists
   bool save_manifest = false;
   Status s = impl->Recover(&edit, &save_manifest);
-  std::cerr<<"recover done\n";
 
   if (s.ok() && impl->mem_ == nullptr) {
     // Create new log and a corresponding memtable.
@@ -1773,7 +1771,9 @@ std::string DBImpl::readValue(FILE* f, size_t offset, size_t size) {
 void DBImpl::readValueForScan(std::vector<std::string> &values, leveldb::BlockQueue<ValueLoc> &locs) {
     while(1){
         ValueLoc vl = locs.Get();
-        if(!vl.f) return;
+        if(!vl.f) {
+            return;
+        }
         values.emplace_back(readValue(vl.f,vl.offset,vl.size));
     }
 }
@@ -1867,6 +1867,7 @@ Status DBImpl::Scan(const leveldb::ReadOptions &options, const std::string &star
         if(valueInfo.back()=='~') {    // value location
           parseValueInfo(valueInfo, filename, offset, size);
           FILE* f = openValueFile(filename);
+          if(!f) std::cerr<<"error\n";
           uint64_t startAdvice = NowMicros();
 //          threadPool_->addTask(readahead,fileno(f),offset,size);
           readahead(fileno(f),offset,size);
@@ -2099,31 +2100,33 @@ void DBImpl::updateMeta(const std::string &filename, int invalid) {
   if(it!=metaTable_.end()) {
     auto& item = it->second;
     invalid += item.invalidKV;
-//    std::cerr<<filename<<" invalid "<<invalid<<"/"<<item.valid<<std::endl;
+    if(toMerge_.find(filename)!=toMerge_.end()) {
+      std::cerr << filename << " invalid " << invalid << "/" << item.valid << std::endl;
+    }
     if (invalid == item.valid) {
       deleteFile(filename);
       metaTable_.erase(it);
-      if(inMerge_.size()>0){
+      if(doMerge_){
         cnt+=toMerge_.erase(filename);
         std::cerr<<"deleted "<<cnt<<"vtables during merge\n";
-        if(!inMerge_.size()) doMerge_ = false;
+        if(toMerge_.size()==0) doMerge_ = false;
       }
     } else {
-      if (filename[0]>='a'+options_.exp_ops.gcLevel && (double) invalid / item.valid > options_.exp_ops.gcRatio) {
+      item.invalidKV = invalid;
+      if (filename[0]>'a'+options_.exp_ops.gcLevel && (double) invalid / item.valid > options_.exp_ops.gcRatio) {
         //TODO: reliability
         if(filename[0]<'g'){
-          std::cerr<<"to merge "<<toMerge_.size()<<std::endl;
           toMerge_.insert(filename);
-          if(toMerge_.size()>=100) {
+          std::cerr<<"to merge "<<filename<<", num:"<<toMerge_.size()<<std::endl;
+          if(toMerge_.size()>=50) {
             std::cerr<<"merge "<<toMerge_.size()<<"vtables\n";
             doMerge_ = true;
 //            std::swap(toMerge_,inMerge_);
           }
+          return;
         }
         metaTable_.erase(filename);
         toGC_.Put(filename);
-      } else {
-        item.invalidKV = invalid;
       }
     }
   }

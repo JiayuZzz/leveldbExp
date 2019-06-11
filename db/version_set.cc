@@ -1312,7 +1312,7 @@ Compaction* VersionSet::PickCompaction() {
 
   // We prefer compactions triggered by too much data in a level over
   // the compactions triggered by seeks.
-  const bool size_compaction = (current_->compaction_score_ >= 1);
+  const bool size_compaction = (current_->compaction_score_ >= 1)&&!options_->exp_ops.noCompaction;
   const bool seek_compaction = (options_->exp_ops.seekCompaction)&&(current_->file_to_compact_ != nullptr);
   if (size_compaction) {
     level = current_->compaction_level_;
