@@ -42,6 +42,8 @@
 #include "table/value_iter.h"
 #include "funcs.h"
 
+static int mergeGCCnt = 0;
+
 namespace leveldb {
 
 FILE* wl = fopen("write_latencies","a+");
@@ -175,6 +177,7 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname)
 DBImpl::~DBImpl() {
     //TODO remove this
   toGC_.Put("");
+  std::cout<<"GCed "<<mergeGCCnt<<" vtables during merge\n";
   delete threadPool_;
   // Wait for background work to finish
   mutex_.Lock();
@@ -1321,7 +1324,7 @@ Status DBImpl::Put(const WriteOptions& o, const Slice& key, const Slice& val) {
     std::string valueInfo = conbineValueInfo(filename,offset,val.size());
     //midVlog_.AddRecord(key.ToString(),valueInfo);
     if(offset>=options_.exp_ops.logSize){
-      writingVlog_.Sync();
+      //writingVlog_.Sync();
       writingVlog_.NextFile(vlogPathname(++lastVlog_));
       metaTable_[conbineStr({"l",std::to_string(lastVlog_)})] = VfileMeta(options_.exp_ops.logSize);
     }
@@ -1768,13 +1771,26 @@ std::string DBImpl::readValue(FILE* f, size_t offset, size_t size) {
     return ret;
 }
 
+void DBImpl::readaheadForScan(leveldb::BlockQueue<leveldb::ValueLoc> &locs) {
+    while(1){
+        ValueLoc vl = locs.Get();
+        if(!vl.f){
+            return;
+        }
+        if(ftell(vl.f)>vl.offset)
+        readahead(fileno(vl.f),vl.offset,vl.size);
+    }
+}
+
 void DBImpl::readValueForScan(std::vector<std::string> &values, leveldb::BlockQueue<ValueLoc> &locs) {
     while(1){
         ValueLoc vl = locs.Get();
         if(!vl.f) {
             return;
         }
+	//std::cerr<<"read\n";
         values.emplace_back(readValue(vl.f,vl.offset,vl.size));
+	//std::cerr<<"read done\n";
     }
 }
 
@@ -1857,7 +1873,9 @@ Status DBImpl::Scan(const leveldb::ReadOptions &options, const std::string &star
     uint64_t iterStart = NowMicros();
     //auto fileReadSize = std::make_shared<std::unordered_map<std::string, size_t>>();
     BlockQueue<ValueLoc> bq;
+    //BlockQueue<ValueLoc> bq2;
     readDone = threadPool_->addTask(&DBImpl::readValueForScan,this,std::ref(values),std::ref(bq));
+    //threadPool_->addTask(&DBImpl::readaheadForScan,this,std::ref(bq2));
     while(iter->Valid()&&cnt<num){
         keys.push_back(iter->key().ToString());
         std::string valueInfo = iter->value().ToString();
@@ -1871,6 +1889,10 @@ Status DBImpl::Scan(const leveldb::ReadOptions &options, const std::string &star
           uint64_t startAdvice = NowMicros();
 //          threadPool_->addTask(readahead,fileno(f),offset,size);
           readahead(fileno(f),offset,size);
+//          threadPool_->addTask(readahead,fileno(f),offset,size);
+          ValueLoc vl(f,offset,size);
+          bq.Put(vl);
+          //bq2.Put(vl);
           STATS::Time(STATS::GetInstance()->fadviceTime, startAdvice, NowMicros());
           /*
           if (filename[0] == 't') {
@@ -1880,7 +1902,6 @@ Status DBImpl::Scan(const leveldb::ReadOptions &options, const std::string &star
             }
           }
            */
-          bq.Put(ValueLoc(f,offset,size));
         } else {
           // don't read real value for now
           // TODO: support it
@@ -1889,10 +1910,13 @@ Status DBImpl::Scan(const leveldb::ReadOptions &options, const std::string &star
         iter->Next();
     }
     bq.Put(ValueLoc(nullptr,0,0));
+    //bq2.Put(ValueLoc(nullptr,0,0));
     STATS::Time(STATS::GetInstance()->scanVlogIter, iterStart, NowMicros());
     delete(iter);
     uint64_t wait = NowMicros();
+    std::cerr<<"wait\n";
     readDone.wait();
+    std::cerr<<"wait donw\n";
     STATS::Time(STATS::GetInstance()->waitScanThreadsFinish, wait, NowMicros());
     STATS::TimeAndCount(STATS::GetInstance()->scanVlogStat, startScan, NowMicros());
     //threadPool_->addTask(&DBImpl::mayScheduleMerge,this,fileReadSize);
@@ -2095,31 +2119,31 @@ Status DBImpl::mergeVtables(std::shared_ptr<std::unordered_set<std::string>> inM
 }
 
 void DBImpl::updateMeta(const std::string &filename, int invalid) {
-  static int cnt = 0;
   auto it = metaTable_.find(filename);
   if(it!=metaTable_.end()) {
     auto& item = it->second;
     invalid += item.invalidKV;
-    if(toMerge_.find(filename)!=toMerge_.end()) {
-      std::cerr << filename << " invalid " << invalid << "/" << item.valid << std::endl;
-    }
+//    if(toMerge_.find(filename)!=toMerge_.end()) {
+//      std::cerr << filename << " invalid " << invalid << "/" << item.valid << std::endl;
+//    }
     if (invalid == item.valid) {
       deleteFile(filename);
       metaTable_.erase(it);
       if(doMerge_){
-        cnt+=toMerge_.erase(filename);
-        std::cerr<<"deleted "<<cnt<<"vtables during merge\n";
+        mergeGCCnt+=toMerge_.erase(filename);
+//        std::cerr<<"deleted "<<mergeGCCnt<<"vtables during merge\n";
         if(toMerge_.size()==0) doMerge_ = false;
       }
     } else {
       item.invalidKV = invalid;
+//      std::cerr<<filename<<" "<<(double) invalid / item.valid << std::endl;
       if (filename[0]>'a'+options_.exp_ops.gcLevel && (double) invalid / item.valid > options_.exp_ops.gcRatio) {
         //TODO: reliability
         if(filename[0]<'g'){
           toMerge_.insert(filename);
-          std::cerr<<"to merge "<<filename<<", num:"<<toMerge_.size()<<std::endl;
+//          std::cerr<<"to merge "<<filename<<", num:"<<toMerge_.size()<<std::endl;
           if(toMerge_.size()>=50) {
-            std::cerr<<"merge "<<toMerge_.size()<<"vtables\n";
+//            std::cerr<<"merge "<<toMerge_.size()<<"vtables\n";
             doMerge_ = true;
 //            std::swap(toMerge_,inMerge_);
           }

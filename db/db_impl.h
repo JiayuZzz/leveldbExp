@@ -233,6 +233,7 @@ class DBImpl : public DB {
   std::string valueFilePath(const std::string& filename);
   std::string vlogPathname(size_t filenum);
   void readValueForScan(std::vector<std::string>& values, BlockQueue<ValueLoc>& locs);
+  void readaheadForScan(BlockQueue<ValueLoc>& locs);
   size_t nextVtable(){
       Put(WriteOptions(),"lastvtable",std::to_string(1+lastVtable_));
       return ++lastVtable_;

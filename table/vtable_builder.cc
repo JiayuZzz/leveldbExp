@@ -11,7 +11,6 @@
 
 namespace leveldb {
     VtableBuilder::VtableBuilder(const std::string& filepath):file(fopen(filepath.c_str(),"w")),finished(false),pos(0),num(0) {
-        toSync.push_back(file);
     }
 
     VtableBuilder::VtableBuilder():file(nullptr),finished(true),pos(0),num(0){}
@@ -33,6 +32,7 @@ namespace leveldb {
         //assert(!finished);
         //fwrite(buffer.c_str(), buffer.size(), 1, file);
         write(fileno(file),buffer.data(),buffer.size());
+        toSync.push_back(pool.addTask(syncFile,file));
         //fdatasync(fileno(file));
         STATS::Add(STATS::GetInstance()->vTableWriteDisk,ftell(file));
         //fclose(file);
@@ -44,7 +44,6 @@ namespace leveldb {
     void VtableBuilder::NextFile(const std::string& filepath) {
         file = fopen(filepath.c_str(),"w");
         finished = false;
-        toSync.push_back(file);
         buffer.clear();
         num = 0;
         pos = 0;
@@ -54,9 +53,8 @@ namespace leveldb {
     void VtableBuilder::Sync() {
         if(!finished) Finish();
         uint64_t startMicros = NowMicros();
-        for(FILE* f:toSync) {
-            fdatasync(fileno(f));
-            fclose(f);
+        for(auto& f:toSync) {
+            f.wait();
         }
         STATS::Time(STATS::GetInstance()->vtableSync, startMicros, NowMicros());
     }

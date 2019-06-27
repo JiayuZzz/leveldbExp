@@ -8,8 +8,15 @@
 #include "leveldb/export.h"
 #include "leveldb/status.h"
 #include <string>
+#include "leveldb/threadpool.h"
 
 namespace leveldb {
+
+static ThreadPool pool{4};
+static void syncFile(FILE* f){
+    fdatasync(fileno(f));
+    fclose(f);
+}
 
 // vtable format: key1$value1$key2$value2...
 // vtable name: ('a'+level)+filenum
@@ -38,7 +45,7 @@ private:
     FILE* file;
     bool finished;
     int num;       // num kv pairs
-    std::vector<FILE*> toSync;     //sync while all done
+    std::vector<std::future<void>> toSync;     //sync while all done
 };
 
 }
