@@ -44,6 +44,7 @@ Status BuildTable(const std::string& dbname,
     VtableBuilder* vtableBuilder = new VtableBuilder();
     FILE* f = nullptr;
     meta->smallest.DecodeFrom(iter->key());
+    std::string start_key, end_key;
     for (; iter->Valid(); iter->Next()) {
       Slice key = iter->key();
       meta->largest.DecodeFrom(key);
@@ -52,10 +53,13 @@ Status BuildTable(const std::string& dbname,
 //        std::cerr<<"small or large, size:"<<value.size()<<std::endl;
         builder->Add(key,iter->value());
       } else {                             // write value to vtable, write location to lsm-tree
+      Slice userKey = ExtractUserKey(key);
+      end_key = userKey.ToString();
 	    if(vtableBuilder->Finished()){
 	      vtablename = conbineStr({prefix,std::to_string(++lastVtable)});
 	      vtablepathname = conbineStr({dbname,"/values/",vtablename});
 	      vtableBuilder->NextFile(vtablepathname);
+        start_key = userKey.ToString();
 	    }
 	    std::string filename;
 	    size_t offset, size;
@@ -70,7 +74,6 @@ Status BuildTable(const std::string& dbname,
 	    pread(fileno(f),realvalue,size,offset);
 	    realvalue[size]='\0';
           STATS::Time(STATS::GetInstance()->readValueFile,startRead,NowMicros());
-        Slice userKey = ExtractUserKey(key);
         offset = vtableBuilder->Add(userKey, Slice(realvalue));
         // filename $ offset $ value size
         std::string valueInfo = conbineValueInfo(vtablename,offset,size);
@@ -78,7 +81,7 @@ Status BuildTable(const std::string& dbname,
         // finish this vtable
         if(offset>options.exp_ops.tableSize){
           int cnt = vtableBuilder->Finish();
-          metaTable[vtablename] = VfileMeta(cnt);
+          metaTable[vtablename] = VfileMeta(cnt, start_key, end_key);
         }
       }
     }
@@ -87,7 +90,7 @@ Status BuildTable(const std::string& dbname,
     if(f) fclose(f);
     if(!vtableBuilder->Finished()){
       int cnt = vtableBuilder->Finish();
-      metaTable[vtablename] = cnt;
+      metaTable[vtablename] = VfileMeta(cnt, start_key, end_key);
     }
     vtableBuilder->Sync();
     s = builder->Finish();

@@ -219,6 +219,7 @@ class DBImpl : public DB {
   ThreadPool* threadPool_;
 
   std::unordered_map<std::string, VfileMeta> metaTable_;
+  std::vector<std::set<std::pair<std::string, std::string>>> level_vtable_ranges_;
 
 //  BlockQueue<std::string> toMerge_;
   BlockQueue<std::string> toGC_;

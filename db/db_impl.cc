@@ -174,6 +174,37 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname)
   //lastVtable_ = 30000;
 }
 
+void PrintSortedRun(std::vector<std::set<std::pair<std::string, std::string>>>& levelRanges){
+  std::ofstream f("sortedruns");
+  std::ofstream f1("sortedruns_cnt");
+  for(int i=0;i<levelRanges.size();i++){
+    std::vector<std::pair<std::string,std::string>> sorted_run;
+    f<<"level"<<i<<" has"<<levelRanges[i].size()<<"vtables"<<std::endl;
+    f1<<"level"<<i<<" has"<<levelRanges[i].size()<<"vtables"<<std::endl;
+    int cnt = 0;
+    while(!levelRanges[i].empty()){
+      auto iter = levelRanges[i].begin();
+      while(iter!=levelRanges[i].end()){
+        if(sorted_run.empty()||iter->first>=sorted_run.back().second){
+          sorted_run.push_back((*iter));
+          levelRanges[i].erase(iter++);
+        } else {
+          iter++;
+        }
+      }
+      f<<"sorted run "<<cnt<<" has "<<sorted_run.size()<<" vtables, range"<<"{"<<sorted_run.front().first<<","<<sorted_run.back().second<<"}:"<<std::endl;
+      f<<"sorted run "<<cnt<<" has "<<sorted_run.size()<<" vtables:";
+      f1<<"sorted run "<<cnt++<<" has "<<sorted_run.size()<<" vtables, range"<<"{"<<sorted_run.front().first<<","<<sorted_run.back().second<<"}";
+      for(auto& p:sorted_run) f<<"{"<<p.first<<","<<p.second<<"} ";
+      f<<std::endl;
+      f1<<std::endl;
+      sorted_run.clear();
+    }
+  }
+  f.close();
+  f1.close();
+}
+
 DBImpl::~DBImpl() {
     //TODO remove this
   toGC_.Put("");
@@ -181,6 +212,22 @@ DBImpl::~DBImpl() {
   delete threadPool_;
   // Wait for background work to finish
   mutex_.Lock();
+  std::vector<std::set<std::pair<std::string, std::string>>> levelRanges(5);
+  for(const auto& i:metaTable_){
+    levelRanges[i.first[0]-'b'].insert({i.second.start,i.second.end});
+  }
+  std::ofstream f("ranges");
+  for(int i=0;i<levelRanges.size();i++){
+    f<<"level "<<i<<" "<<levelRanges[i].size()<<std::endl;
+    for(const auto&p : levelRanges[i]){
+      f<<"{"<<p.first<<","<<p.second<<"}"<<" ";
+    }
+    f<<std::endl;
+  }
+  f.close();
+  std::cerr<<"start print\n";
+  PrintSortedRun(levelRanges);
+  std::cerr<<"done print"<<std::endl;
   shutting_down_.Release_Store(this);  // Any non-null value is ok
   while (background_compaction_scheduled_) {
     background_work_finished_signal_.Wait();
@@ -956,6 +1003,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   std::string vtablepathname;
 //  std::cerr<<"compaction level "<<level<<", prefix"<<levelPrefix<<" next prefix "<<nextprefix<<std::endl;
   std::unordered_map<std::string, int> invalidated;
+  std::string start_key, end_key;
 
   Iterator* input = versions_->MakeInputIterator(compact->compaction);
   input->SeekToFirst();
@@ -1064,19 +1112,22 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
         size_t offset, size;
         parseValueInfo(value,filename,offset,size);
         if(value[0]==levelPrefix||(doMerge_&&(level==options_.exp_ops.gcLevel)&&toMerge_.find(filename)!=toMerge_.end())) {
+            Slice user_key = ExtractUserKey(key);
             if (vtableBuilder->Finished()) {
                 vtablename = conbineStr({nextprefix, std::to_string(++lastVtable_)});
                 vtablepathname = valueFilePath(vtablename);
                 vtableBuilder->NextFile(vtablepathname);
+                start_key = user_key.ToString();
             }
+            end_key = user_key.ToString();
 //        std::cerr<<"value info:"<<value<<std::endl;
             std::string v = readValue(openValueFile(filename), offset, size);
-            offset = vtableBuilder->Add(key, v);
+            offset = vtableBuilder->Add(user_key, v);
 //        std::cerr<<"add done\n";
             value = conbineValueInfo(vtablename, offset, size);
             if (offset > options_.exp_ops.tableSize) {
                 int cnt = vtableBuilder->Finish();
-                metaTable_[vtablename] = VfileMeta(cnt);
+                metaTable_[vtablename] = VfileMeta(cnt, start_key, end_key);
 //                std::cerr << "output new vtable: " << vtablename << std::endl;
             }
           auto it = invalidated.find(filename);
@@ -1116,7 +1167,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   }
   if(!vtableBuilder->Finished()){
       int cnt = vtableBuilder->Finish();
-      metaTable_[vtablename] = VfileMeta(cnt);
+      metaTable_[vtablename] = VfileMeta(cnt, start_key, end_key);
   }
   vtableBuilder->Sync();
   delete vtableBuilder;
@@ -1326,7 +1377,7 @@ Status DBImpl::Put(const WriteOptions& o, const Slice& key, const Slice& val) {
     if(offset>=options_.exp_ops.logSize){
       //writingVlog_.Sync();
       writingVlog_.NextFile(vlogPathname(++lastVlog_));
-      metaTable_[conbineStr({"l",std::to_string(lastVlog_)})] = VfileMeta(options_.exp_ops.logSize);
+      metaTable_[conbineStr({"l",std::to_string(lastVlog_)})] = VfileMeta(options_.exp_ops.logSize,"","");
     }
     STATS::TimeAndCount(STATS::GetInstance()->writeVlogStat,startMicros,NowMicros());
     s = DB::Put(o, key, valueInfo);
@@ -2066,6 +2117,7 @@ size_t DBImpl::writeVlog(const std::string &key, const std::string &value) {
 
 Status DBImpl::deleteFile(const std::string &filename){
 //      std::cerr<<"delete "<<filename<<std::endl;
+      auto iter = metaTable_.find(filename);
       return remove(valueFilePath(filename).c_str()) == 0 ? Status() : Status().IOError("delete vlog error\n");
     }
 

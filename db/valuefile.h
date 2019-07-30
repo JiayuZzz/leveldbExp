@@ -25,8 +25,10 @@ namespace leveldb {
     struct VfileMeta {
         int valid;
         int invalidKV;
+        std::string start;
+        std::string end;
 
-        VfileMeta(int v) : valid(v),invalidKV(0) {}
+        VfileMeta(int v, const std::string& s, const std::string& e) : valid(v),invalidKV(0),start(s),end(e) {}
 
         VfileMeta() {}
     };
