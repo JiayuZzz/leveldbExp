@@ -1777,8 +1777,7 @@ void DBImpl::readaheadForScan(leveldb::BlockQueue<leveldb::ValueLoc> &locs) {
         if(!vl.f){
             return;
         }
-        if(ftell(vl.f)>vl.offset)
-        readahead(fileno(vl.f),vl.offset,vl.size);
+        readahead(fileno(vl.f), vl.offset, vl.size);
     }
 }
 
@@ -1873,9 +1872,9 @@ Status DBImpl::Scan(const leveldb::ReadOptions &options, const std::string &star
     uint64_t iterStart = NowMicros();
     //auto fileReadSize = std::make_shared<std::unordered_map<std::string, size_t>>();
     BlockQueue<ValueLoc> bq;
-    //BlockQueue<ValueLoc> bq2;
+    BlockQueue<ValueLoc> bq2;
     readDone = threadPool_->addTask(&DBImpl::readValueForScan,this,std::ref(values),std::ref(bq));
-    //threadPool_->addTask(&DBImpl::readaheadForScan,this,std::ref(bq2));
+    threadPool_->addTask(&DBImpl::readaheadForScan,this,std::ref(bq2));
     while(iter->Valid()&&cnt<num){
         keys.push_back(iter->key().ToString());
         std::string valueInfo = iter->value().ToString();
@@ -1886,22 +1885,15 @@ Status DBImpl::Scan(const leveldb::ReadOptions &options, const std::string &star
           parseValueInfo(valueInfo, filename, offset, size);
           FILE* f = openValueFile(filename);
           if(!f) std::cerr<<"error\n";
+          //uint64_t startAdvice = NowMicros();
+          //if(valueInfo[0]>'f')
           uint64_t startAdvice = NowMicros();
-//          threadPool_->addTask(readahead,fileno(f),offset,size);
-          readahead(fileno(f),offset,size);
-//          threadPool_->addTask(readahead,fileno(f),offset,size);
           ValueLoc vl(f,offset,size);
+		  //if(valueInfo[0]>'f')
+          bq2.Put(vl);
           bq.Put(vl);
-          //bq2.Put(vl);
+//          readahead(fileno(f),offset,size);
           STATS::Time(STATS::GetInstance()->fadviceTime, startAdvice, NowMicros());
-          /*
-          if (filename[0] == 't') {
-            if ((*fileReadSize)[filename]) (*fileReadSize)[filename] += size;
-            else {
-              (*fileReadSize)[filename] = size;
-            }
-          }
-           */
         } else {
           // don't read real value for now
           // TODO: support it
@@ -1910,13 +1902,11 @@ Status DBImpl::Scan(const leveldb::ReadOptions &options, const std::string &star
         iter->Next();
     }
     bq.Put(ValueLoc(nullptr,0,0));
-    //bq2.Put(ValueLoc(nullptr,0,0));
+    bq2.Put(ValueLoc(nullptr,0,0));
     STATS::Time(STATS::GetInstance()->scanVlogIter, iterStart, NowMicros());
     delete(iter);
     uint64_t wait = NowMicros();
-    std::cerr<<"wait\n";
     readDone.wait();
-    std::cerr<<"wait donw\n";
     STATS::Time(STATS::GetInstance()->waitScanThreadsFinish, wait, NowMicros());
     STATS::TimeAndCount(STATS::GetInstance()->scanVlogStat, startScan, NowMicros());
     //threadPool_->addTask(&DBImpl::mayScheduleMerge,this,fileReadSize);
